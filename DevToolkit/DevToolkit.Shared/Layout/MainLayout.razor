@@ -25,13 +25,20 @@
         </div>
     </FluentHeader>
     <FluentStack Orientation="Orientation.Horizontal" Style="flex: 1; overflow: hidden;" Class="main-content">
-        <FluentNavMenu class="@NavMenuClass" Width="250" Title="Tools" Style="flex-shrink: 0; height: 100%; overflow-y: auto;">
-            <FluentNavLink Href="/" Match="NavLinkMatch.All" IconColor="Color.Accent">Home</FluentNavLink>
-            @foreach (var tool in ToolRegistry.Tools)
-            {
-                <FluentNavLink Href="@tool.Route" IconColor="Color.Accent">@* @tool.Icon  *@@tool.Name</FluentNavLink>
-            }
-        </FluentNavMenu>
+        @if (_isNavOpen)
+        {
+            <FluentNavMenu Class="nav-menu open"
+                           Width="250"
+                           Title="Tools"
+                           Style="flex-shrink: 0; height: 100%; overflow-y: auto;">
+                <FluentNavLink Href="/" Match="NavLinkMatch.All" IconColor="Color.Accent">Home</FluentNavLink>
+                @foreach (var tool in ToolRegistry.Tools)
+                {
+                    <FluentNavLink Href="@tool.Route" IconColor="Color.Accent">@tool.Name</FluentNavLink>
+                }
+            </FluentNavMenu>
+        }
+
         <div class="content-area" @key="_currentMode">
             @Body
         </div>
@@ -44,12 +51,16 @@
     <span class="dismiss">🗙</span>
 </div>
 
+<style>
+    .nav-menu.closed {
+        display: none;
+    }
+</style>
+
 @code {
     private string CurrentTitle { get; set; } = "Dev Toolkit";
     private DesignThemeModes _currentMode = DesignThemeModes.System;
     private bool _isNavOpen = true;
-
-    private string NavMenuClass => $"nav-menu {(_isNavOpen ? "open" : "closed")}";
 
     private void ToggleNav()
     {
@@ -86,8 +97,6 @@
             _ when tool is not null => $"Dev Toolkit - {tool.Name}",
             _ => "Dev Toolkit"
         };
-
-        _isNavOpen = false;
         StateHasChanged();
     }
 
