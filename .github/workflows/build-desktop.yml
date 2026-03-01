@@ -17,19 +17,18 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-          include-prerelease: true
 
       - name: Install MAUI workload
         run: dotnet workload install maui
 
       - name: Restore desktop project
-        run: dotnet restore ToolAid/ToolAid/ToolAid.csproj -p:TargetFramework=net10.0-windows10.0.19041.0
+        run: dotnet restore DevToolkit/DevToolkit/DevToolkit.csproj -p:TargetFramework=net10.0-windows10.0.19041.0
 
       - name: Build desktop project (Windows)
-        run: dotnet build ToolAid/ToolAid/ToolAid.csproj -f net10.0-windows10.0.19041.0 --configuration Release --no-restore
+        run: dotnet build DevToolkit/DevToolkit/DevToolkit.csproj -f net10.0-windows10.0.19041.0 --configuration Release --no-restore
 
       - name: Publish desktop project (Windows)
-        run: dotnet publish ToolAid/ToolAid/ToolAid.csproj -f net10.0-windows10.0.19041.0 --configuration Release --no-build --output .\artifacts\desktop
+        run: dotnet publish DevToolkit/DevToolkit/DevToolkit.csproj -f net10.0-windows10.0.19041.0 --configuration Release --no-build --output .\artifacts\desktop
 
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v4

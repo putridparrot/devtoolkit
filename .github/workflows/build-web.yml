@@ -17,16 +17,15 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-          include-prerelease: true
 
       - name: Restore Web host
-        run: dotnet restore ToolAid/ToolAid.Web/ToolAid.Web.csproj
+        run: dotnet restore DevToolkit/DevToolkit.Web/DevToolkit.Web.csproj
 
       - name: Build Web host
-        run: dotnet build ToolAid/ToolAid.Web/ToolAid.Web.csproj --configuration Release --no-restore
+        run: dotnet build DevToolkit/DevToolkit.Web/DevToolkit.Web.csproj --configuration Release --no-restore
 
       - name: Publish Web host
-        run: dotnet publish ToolAid/ToolAid.Web/ToolAid.Web.csproj --configuration Release --no-build --output ./artifacts/web
+        run: dotnet publish DevToolkit/DevToolkit.Web/DevToolkit.Web.csproj --configuration Release --no-build --output ./artifacts/web
 
       - name: Upload web artifact
         uses: actions/upload-artifact@v4
