@@ -1,0 +1,56 @@
+@using DevToolkit.Shared.Services
+@attribute [ToolSettings("/snippets")]
+@inject ISettingsService SettingsService
+
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
+    <FluentLabel>GitHub Gist URL</FluentLabel>
+    <FluentTextField Value="@_gistUrl" ValueChanged="@((string v) => _gistUrl = v)"
+                     Placeholder="https://gist.github.com/username" Style="width: 100%;" />
+    <FluentLabel>GitHub Token (PAT)</FluentLabel>
+    <FluentTextField Value="@_gistToken" ValueChanged="@((string v) => _gistToken = v)"
+                     Placeholder="ghp_..." TextFieldType="TextFieldType.Password" Style="width: 100%;" />
+    <FluentLabel Style="font-size: 0.875rem; opacity: 0.8;">
+        Enter your Gist URL and a PAT with gist write access to load/save gists.
+    </FluentLabel>
+</FluentStack>
+
+<FluentButton Appearance="Appearance.Accent" OnClick="SaveAsync" Style="margin-top: 10px;">Save</FluentButton>
+
+@if (!string.IsNullOrWhiteSpace(_statusMessage))
+{
+    <FluentMessageBar Intent="@_intent" Style="margin-top: 10px;">@_statusMessage</FluentMessageBar>
+}
+
+@code {
+    private string _gistUrl = string.Empty;
+    private string _gistToken = string.Empty;
+    private string _statusMessage = string.Empty;
+    private MessageIntent _intent = MessageIntent.Success;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var settings = await SettingsService.LoadSettingsAsync();
+        _gistUrl = settings.Snippets.GistUrl;
+        _gistToken = settings.Snippets.GistToken;
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var settings = await SettingsService.LoadSettingsAsync();
+            settings.Snippets.GistUrl = _gistUrl;
+            settings.Snippets.GistToken = _gistToken;
+            await SettingsService.SaveSettingsAsync(settings);
+            _statusMessage = "Saved!";
+            _intent = MessageIntent.Success;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error: {ex.Message}";
+            _intent = MessageIntent.Error;
+        }
+
+        _ = Task.Delay(3000).ContinueWith(_ => { _statusMessage = string.Empty; InvokeAsync(StateHasChanged); });
+    }
+}

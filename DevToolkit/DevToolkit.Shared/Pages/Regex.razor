@@ -1,0 +1,167 @@
+@page "/regex"
+@attribute [ToolPage("Regex", "🔎", "Test regex patterns with options and inspect match groups.", 10)]
+@using System.Text.RegularExpressions
+
+<PageTitle>Regex Tester</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
+    <FluentLabel Typo="Typography.PageTitle">Regex Tester</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
+            <FluentLabel Typo="Typography.Subject">Pattern</FluentLabel>
+            <FluentTextField Value="@pattern"
+                             ValueChanged="@((string v) => pattern = v)"
+                             Placeholder="e.g. ^\\d{4}-\\d{2}-\\d{2}$"
+                             Style="width: 100%;" />
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 16px; flex-wrap: wrap;">
+                <FluentCheckbox @bind-Value="ignoreCase" Label="Ignore Case" />
+                <FluentCheckbox @bind-Value="multiline" Label="Multiline" />
+                <FluentCheckbox @bind-Value="singleline" Label="Singleline" />
+            </FluentStack>
+
+            <FluentLabel Typo="Typography.Subject">Input Text</FluentLabel>
+            <FluentTextArea Value="@inputText"
+                            ValueChanged="@((string v) => inputText = v)"
+                            Rows="10"
+                            Style="width: 100%; font-family: monospace;" />
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="RunRegex">Run</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="ClearAll">Clear</FluentButton>
+            </FluentStack>
+
+            @if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                <FluentMessageBar Intent="MessageIntent.Error">@errorMessage</FluentMessageBar>
+            }
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentLabel Typo="Typography.Subject">Matches (@results.Count)</FluentLabel>
+
+        @if (results.Any())
+        {
+            <FluentDataGrid Items="@results.AsQueryable()" GridTemplateColumns="80px 100px 120px 1fr" Style="margin-top: 10px;">
+                <PropertyColumn Property="@(m => m.Index)" Title="#" />
+                <PropertyColumn Property="@(m => m.Start)" Title="Start" />
+                <PropertyColumn Property="@(m => m.Length)" Title="Length" />
+                <PropertyColumn Property="@(m => m.Value)" Title="Value" />
+            </FluentDataGrid>
+
+            <FluentLabel Typo="Typography.Subject" Style="margin-top: 15px;">Groups</FluentLabel>
+            <FluentDataGrid Items="@groups.AsQueryable()" GridTemplateColumns="80px 80px 100px 120px 1fr" Style="margin-top: 10px;">
+                <PropertyColumn Property="@(g => g.MatchIndex)" Title="Match" />
+                <PropertyColumn Property="@(g => g.GroupIndex)" Title="Group" />
+                <PropertyColumn Property="@(g => g.GroupName)" Title="Name" />
+                <PropertyColumn Property="@(g => g.Start)" Title="Start" />
+                <PropertyColumn Property="@(g => g.Value)" Title="Value" />
+            </FluentDataGrid>
+        }
+        else if (ranOnce)
+        {
+            <FluentLabel Style="margin-top: 10px;">No matches found.</FluentLabel>
+        }
+    </FluentCard>
+</FluentStack>
+</div>
+
+@code {
+    private string pattern = string.Empty;
+    private string inputText = string.Empty;
+    private bool ignoreCase;
+    private bool multiline;
+    private bool singleline;
+    private string errorMessage = string.Empty;
+    private bool ranOnce;
+
+    private List<RegexMatchRow> results = new();
+    private List<RegexGroupRow> groups = new();
+
+    private void RunRegex()
+    {
+        errorMessage = string.Empty;
+        results.Clear();
+        groups.Clear();
+        ranOnce = true;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(pattern))
+            {
+                errorMessage = "Pattern is required.";
+                return;
+            }
+
+            var options = global::System.Text.RegularExpressions.RegexOptions.None;
+            if (ignoreCase) options |= global::System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+            if (multiline) options |= global::System.Text.RegularExpressions.RegexOptions.Multiline;
+            if (singleline) options |= global::System.Text.RegularExpressions.RegexOptions.Singleline;
+
+            var regex = new global::System.Text.RegularExpressions.Regex(pattern, options);
+            var matches = regex.Matches(inputText);
+
+            for (var i = 0; i < matches.Count; i++)
+            {
+                var m = matches[i];
+                results.Add(new RegexMatchRow
+                {
+                    Index = i + 1,
+                    Start = m.Index,
+                    Length = m.Length,
+                    Value = m.Value
+                });
+
+                for (var gi = 0; gi < m.Groups.Count; gi++)
+                {
+                    var group = m.Groups[gi];
+                    groups.Add(new RegexGroupRow
+                    {
+                        MatchIndex = i + 1,
+                        GroupIndex = gi,
+                        GroupName = regex.GroupNameFromNumber(gi),
+                        Start = group.Index,
+                        Value = group.Value
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Regex error: {ex.Message}";
+        }
+    }
+
+    private void ClearAll()
+    {
+        pattern = string.Empty;
+        inputText = string.Empty;
+        ignoreCase = false;
+        multiline = false;
+        singleline = false;
+        errorMessage = string.Empty;
+        ranOnce = false;
+        results.Clear();
+        groups.Clear();
+    }
+
+    private class RegexMatchRow
+    {
+        public int Index { get; set; }
+        public int Start { get; set; }
+        public int Length { get; set; }
+        public string Value { get; set; } = string.Empty;
+    }
+
+    private class RegexGroupRow
+    {
+        public int MatchIndex { get; set; }
+        public int GroupIndex { get; set; }
+        public string GroupName { get; set; } = string.Empty;
+        public int Start { get; set; }
+        public string Value { get; set; } = string.Empty;
+    }
+}

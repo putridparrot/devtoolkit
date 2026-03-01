@@ -1,0 +1,8 @@
+.jwt-editor {
+    min-height: 80px;
+    width: 100%;
+}
+
+.jwt-editor::part(control) {
+    min-height: 80px;
+}

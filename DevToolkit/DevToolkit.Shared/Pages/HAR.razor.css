@@ -1,0 +1,18 @@
+.har-input {
+    width: 100%;
+    min-height: 220px;
+    margin-top: 10px;
+    resize: vertical;
+    font-family: monospace;
+    box-sizing: border-box;
+    padding: 10px;
+}
+
+.har-load-row {
+    margin-top: 10px;
+}
+
+.status-error {
+    color: #d13438;
+    font-weight: 600;
+}

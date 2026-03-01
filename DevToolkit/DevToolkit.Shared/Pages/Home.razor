@@ -1,0 +1,32 @@
+﻿@page "/"
+@inject NavigationManager NavigationManager
+
+<PageTitle>Home</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
+        <FluentLabel Typo="Typography.PageTitle">Welcome to Dev Toolkit</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 15px;">
+            <FluentLabel Typo="Typography.Body">
+               Dev Toolkit is your collection of developer utilities to make your work easier.
+            </FluentLabel>
+
+            <FluentLabel Typo="Typography.Subject">Available Tools:</FluentLabel>
+
+            <div class="tools-grid">
+                @foreach (var tool in ToolRegistry.Tools)
+                {
+                    var route = tool.Route;
+                    <FluentCard Class="tool-card" @onclick="() => NavigationManager.NavigateTo(route)">
+                        <FluentLabel Typo="Typography.Body" Weight="FontWeight.Bold">@tool.Icon @tool.Name</FluentLabel>
+                        <FluentLabel>@tool.Description</FluentLabel>
+                    </FluentCard>
+                }
+            </div>
+        </FluentStack>
+    </FluentCard>
+</FluentStack>
+</div>
+

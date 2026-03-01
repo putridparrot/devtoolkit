@@ -1,0 +1,100 @@
+@page "/json"
+@attribute [ToolPage("JSON", "🧾", "Format, minify, and validate JSON payloads.", 4)]
+@using System.Text.Json
+
+<PageTitle>JSON</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
+    <FluentLabel Typo="Typography.PageTitle">JSON Tools</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
+            <FluentLabel Typo="Typography.Subject">Input JSON</FluentLabel>
+            <FluentTextArea Value="@_jsonInput"
+                            ValueChanged="@((string v) => _jsonInput = v)"
+                            Rows="12"
+                            Style="width: 100%; font-family: monospace;" />
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="FormatJson">Format</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="MinifyJson">Minify</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="ValidateJson">Validate</FluentButton>
+                <FluentButton Appearance="Appearance.Lightweight" OnClick="ClearAll">Clear</FluentButton>
+            </FluentStack>
+
+            @if (!string.IsNullOrWhiteSpace(_statusMessage))
+            {
+                <FluentMessageBar Intent="@_statusIntent">@_statusMessage</FluentMessageBar>
+            }
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentLabel Typo="Typography.Subject">Output</FluentLabel>
+        <FluentTextArea Value="@_jsonOutput"
+                        ValueChanged="@((string v) => _jsonOutput = v)"
+                        Rows="12"
+                        Style="width: 100%; margin-top: 10px; font-family: monospace;" />
+    </FluentCard>
+</FluentStack>
+</div>
+
+@code {
+    private string _jsonInput = string.Empty;
+    private string _jsonOutput = string.Empty;
+    private string _statusMessage = string.Empty;
+    private MessageIntent _statusIntent = MessageIntent.Info;
+
+    private void FormatJson()
+    {
+        ProcessJson(writeIndented: true, mode: "formatted");
+    }
+
+    private void MinifyJson()
+    {
+        ProcessJson(writeIndented: false, mode: "minified");
+    }
+
+    private void ValidateJson()
+    {
+        _statusMessage = string.Empty;
+
+        try
+        {
+            using var _ = JsonDocument.Parse(_jsonInput);
+            _statusMessage = "Valid JSON.";
+            _statusIntent = MessageIntent.Success;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Invalid JSON: {ex.Message}";
+            _statusIntent = MessageIntent.Error;
+        }
+    }
+
+    private void ProcessJson(bool writeIndented, string mode)
+    {
+        _statusMessage = string.Empty;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(_jsonInput);
+            _jsonOutput = JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = writeIndented });
+            _statusMessage = $"JSON {mode} successfully.";
+            _statusIntent = MessageIntent.Success;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Invalid JSON: {ex.Message}";
+            _statusIntent = MessageIntent.Error;
+        }
+    }
+
+    private void ClearAll()
+    {
+        _jsonInput = string.Empty;
+        _jsonOutput = string.Empty;
+        _statusMessage = string.Empty;
+    }
+}

@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="DevToolkit/DevToolkit.Shared/DevToolkit.Shared.csproj" />
+  <Project Path="DevToolkit/DevToolkit.Web.Client/DevToolkit.Web.Client.csproj" />
+  <Project Path="DevToolkit/DevToolkit.Web/DevToolkit.Web.csproj" />
+  <Project Path="DevToolkit/DevToolkit/DevToolkit.csproj" />
+</Solution>

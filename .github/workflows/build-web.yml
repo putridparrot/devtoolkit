@@ -1,0 +1,35 @@
+name: Build Web
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          include-prerelease: true
+
+      - name: Restore Web host
+        run: dotnet restore ToolAid/ToolAid.Web/ToolAid.Web.csproj
+
+      - name: Build Web host
+        run: dotnet build ToolAid/ToolAid.Web/ToolAid.Web.csproj --configuration Release --no-restore
+
+      - name: Publish Web host
+        run: dotnet publish ToolAid/ToolAid.Web/ToolAid.Web.csproj --configuration Release --no-build --output ./artifacts/web
+
+      - name: Upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-publish
+          path: ./artifacts/web

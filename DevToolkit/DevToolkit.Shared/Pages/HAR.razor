@@ -1,0 +1,133 @@
+@page "/har"
+@attribute [ToolPage("HAR", "📊", "View and analyze HTTP Archive (HAR) files.", 3)]
+@using System.Text.Json
+
+<PageTitle>HAR</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
+    <FluentLabel Typo="Typography.PageTitle">HAR File Viewer</FluentLabel>
+    
+    <FluentCard Style="padding: 20px;">
+        <FluentLabel Typo="Typography.Subject">Paste HAR Content</FluentLabel>
+        <div class="har-load-row">
+            <InputFile OnChange="LoadHarFile" accept=".har,.hat,application/json" />
+        </div>
+        <textarea class="har-input"
+                  @bind="_harContent"
+                  @bind:event="onchange"
+                  placeholder="Paste your HAR file content here..."></textarea>
+        <FluentButton Appearance="Appearance.Accent" OnClick="ParseHar" Style="margin-top: 10px;">Parse HAR</FluentButton>
+    </FluentCard>
+
+    @if (_entries.Any())
+    {
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">HTTP Requests (@_entries.Count)</FluentLabel>
+            <FluentDataGrid Items="@_entries.AsQueryable()" Style="margin-top: 10px;" GridTemplateColumns="1fr 2fr 1fr 1fr">
+                <PropertyColumn Property="@(e => e.Method)" Title="Method" />
+                <PropertyColumn Property="@(e => e.Url)" Title="URL" />
+                <TemplateColumn Title="Status" Context="entry">
+                    <span class="@GetStatusClass(entry.Status)">@entry.Status</span>
+                </TemplateColumn>
+                <PropertyColumn Property="@(e => e.Time)" Title="Time (ms)" />
+            </FluentDataGrid>
+        </FluentCard>
+
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Summary</FluentLabel>
+            <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px; margin-top: 10px;">
+                <FluentLabel>Total Requests: @_entries.Count</FluentLabel>
+                <FluentLabel>Total Time: @_entries.Sum(e => e.Time) ms</FluentLabel>
+                <FluentLabel>Successful (2xx): @_entries.Count(e => e.Status >= 200 && e.Status < 300)</FluentLabel>
+                <FluentLabel>Client Errors (4xx): @_entries.Count(e => e.Status >= 400 && e.Status < 500)</FluentLabel>
+                <FluentLabel>Server Errors (5xx): @_entries.Count(e => e.Status >= 500 && e.Status < 600)</FluentLabel>
+            </FluentStack>
+        </FluentCard>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    {
+        <FluentMessageBar Intent="MessageIntent.Error">
+            @_errorMessage
+        </FluentMessageBar>
+    }
+</FluentStack>
+</div>
+
+@code {
+    private string _harContent = string.Empty;
+    private string _errorMessage = string.Empty;
+    private readonly List<HarEntry> _entries = new();
+
+    private async Task LoadHarFile(InputFileChangeEventArgs e)
+    {
+        _errorMessage = string.Empty;
+
+        try
+        {
+            var file = e.File;
+            await using var stream = file.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            _harContent = await reader.ReadToEndAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error loading HAR file: {ex.Message}";
+        }
+    }
+
+    private void ParseHar()
+    {
+        _errorMessage = string.Empty;
+        _entries.Clear();
+
+        try
+        {
+            using var document = JsonDocument.Parse(_harContent);
+            var root = document.RootElement;
+
+            if (root.TryGetProperty("log", out var log) && 
+                log.TryGetProperty("entries", out var entriesElement))
+            {
+                foreach (var entry in entriesElement.EnumerateArray())
+                {
+                    var request = entry.GetProperty("request");
+                    var response = entry.GetProperty("response");
+
+                    var harEntry = new HarEntry
+                    {
+                        Method = request.GetProperty("method").GetString() ?? "",
+                        Url = request.GetProperty("url").GetString() ?? "",
+                        Status = response.GetProperty("status").GetInt32(),
+                        Time = (int)entry.GetProperty("time").GetDouble()
+                    };
+
+                    _entries.Add(harEntry);
+                }
+            }
+            else
+            {
+                _errorMessage = "Invalid HAR format. Could not find 'log.entries' in the JSON.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error parsing HAR file: {ex.Message}";
+        }
+    }
+
+    private class HarEntry
+    {
+        public string Method { get; set; } = string.Empty;
+        public string Url { get; set; } = string.Empty;
+        public int Status { get; set; }
+        public int Time { get; set; }
+    }
+
+    private static string GetStatusClass(int status)
+    {
+        return status is >= 200 and < 300 ? string.Empty : "status-error";
+    }
+}

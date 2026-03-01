@@ -1,0 +1,170 @@
+@page "/hash-hmac"
+@attribute [ToolPage("Hash/HMAC", "#️⃣", "Generate MD5/SHA hashes and HMAC signatures.", 11)]
+@using System.Security.Cryptography
+@using System.Text
+
+<PageTitle>Hash/HMAC</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
+    <FluentLabel Typo="Typography.PageTitle">Hash / HMAC Tools</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentTabs>
+            <FluentTab Label="Hash">
+                <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px; padding: 20px;">
+                    <FluentLabel Typo="Typography.Subject">Input</FluentLabel>
+                    <FluentTextArea Value="@_hashInput" ValueChanged="@((string v) => _hashInput = v)" Rows="8" Style="width: 100%; font-family: monospace;" />
+
+                    <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; align-items: center;">
+                        <FluentLabel>Algorithm</FluentLabel>
+                        <FluentSelect Items="@_algorithms" @bind-SelectedOption="_selectedHashAlgorithm" Style="width: 140px;">
+                            <OptionTemplate>@context</OptionTemplate>
+                        </FluentSelect>
+                    </FluentStack>
+
+                    <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px;">
+                        <FluentButton Appearance="Appearance.Accent" OnClick="GenerateHash">Generate Hash</FluentButton>
+                        <FluentButton Appearance="Appearance.Outline" OnClick="ClearHash">Clear</FluentButton>
+                    </FluentStack>
+
+                    @if (!string.IsNullOrWhiteSpace(_hashErrorMessage))
+                    {
+                        <FluentMessageBar Intent="MessageIntent.Error">@_hashErrorMessage</FluentMessageBar>
+                    }
+
+                    <FluentLabel Typo="Typography.Subject">Output (Hex)</FluentLabel>
+                    <FluentTextArea Value="@_hashOutput" ValueChanged="@((string v) => _hashOutput = v)" Rows="4" Style="width: 100%; font-family: monospace;" />
+                </FluentStack>
+            </FluentTab>
+
+            <FluentTab Label="HMAC">
+                <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px; padding: 20px;">
+                    <FluentLabel Typo="Typography.Subject">Input</FluentLabel>
+                    <FluentTextArea Value="@_hmacInput" ValueChanged="@((string v) => _hmacInput = v)" Rows="8" Style="width: 100%; font-family: monospace;" />
+
+                    <FluentLabel Typo="Typography.Subject">Secret Key</FluentLabel>
+                    <FluentTextField Value="@_hmacKey" ValueChanged="@((string v) => _hmacKey = v)" TextFieldType="TextFieldType.Password" Style="width: 100%;" />
+
+                    <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; align-items: center;">
+                        <FluentLabel>Algorithm</FluentLabel>
+                        <FluentSelect Items="@_hmacAlgorithms" @bind-SelectedOption="_selectedHmacAlgorithm" Style="width: 140px;">
+                            <OptionTemplate>@context</OptionTemplate>
+                        </FluentSelect>
+                    </FluentStack>
+
+                    <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px;">
+                        <FluentButton Appearance="Appearance.Accent" OnClick="GenerateHmac">Generate HMAC</FluentButton>
+                        <FluentButton Appearance="Appearance.Outline" OnClick="ClearHmac">Clear</FluentButton>
+                    </FluentStack>
+
+                    @if (!string.IsNullOrWhiteSpace(_hmacErrorMessage))
+                    {
+                        <FluentMessageBar Intent="MessageIntent.Error">@_hmacErrorMessage</FluentMessageBar>
+                    }
+
+                    <FluentLabel Typo="Typography.Subject">Output (Hex)</FluentLabel>
+                    <FluentTextArea Value="@_hmacOutput" ValueChanged="@((string v) => _hmacOutput = v)" Rows="4" Style="width: 100%; font-family: monospace;" />
+                </FluentStack>
+            </FluentTab>
+        </FluentTabs>
+    </FluentCard>
+</FluentStack>
+</div>
+
+@code {
+    private readonly List<string> _algorithms = ["MD5", "SHA1", "SHA256", "SHA384", "SHA512"];
+    private readonly List<string> _hmacAlgorithms = ["SHA1", "SHA256", "SHA384", "SHA512"];
+
+    private string _selectedHashAlgorithm = "SHA256";
+    private string _selectedHmacAlgorithm = "SHA256";
+
+    private string _hashInput = string.Empty;
+    private string _hashOutput = string.Empty;
+    private string _hashErrorMessage = string.Empty;
+
+    private string _hmacInput = string.Empty;
+    private string _hmacKey = string.Empty;
+    private string _hmacOutput = string.Empty;
+    private string _hmacErrorMessage = string.Empty;
+
+    private void GenerateHash()
+    {
+        _hashErrorMessage = string.Empty;
+
+        try
+        {
+            var bytes = Encoding.UTF8.GetBytes(_hashInput);
+            var hashed = _selectedHashAlgorithm switch
+            {
+                "MD5" => MD5.HashData(bytes),
+                "SHA1" => SHA1.HashData(bytes),
+                "SHA384" => SHA384.HashData(bytes),
+                "SHA512" => SHA512.HashData(bytes),
+                _ => SHA256.HashData(bytes)
+            };
+
+            _hashOutput = ConvertToHex(hashed);
+        }
+        catch (Exception ex)
+        {
+            _hashErrorMessage = $"Error generating hash: {ex.Message}";
+        }
+    }
+
+    private void GenerateHmac()
+    {
+        _hmacErrorMessage = string.Empty;
+
+        if (string.IsNullOrEmpty(_hmacKey))
+        {
+            _hmacErrorMessage = "Secret key is required for HMAC.";
+            return;
+        }
+
+        try
+        {
+            var keyBytes = Encoding.UTF8.GetBytes(_hmacKey);
+            var dataBytes = Encoding.UTF8.GetBytes(_hmacInput);
+
+            byte[] mac = _selectedHmacAlgorithm switch
+            {
+                "SHA1" => HMACSHA1.HashData(keyBytes, dataBytes),
+                "SHA384" => HMACSHA384.HashData(keyBytes, dataBytes),
+                "SHA512" => HMACSHA512.HashData(keyBytes, dataBytes),
+                _ => HMACSHA256.HashData(keyBytes, dataBytes)
+            };
+
+            _hmacOutput = ConvertToHex(mac);
+        }
+        catch (Exception ex)
+        {
+            _hmacErrorMessage = $"Error generating HMAC: {ex.Message}";
+        }
+    }
+
+    private static string ConvertToHex(byte[] bytes)
+    {
+        var sb = new StringBuilder(bytes.Length * 2);
+        foreach (var b in bytes)
+        {
+            sb.Append(b.ToString("x2"));
+        }
+        return sb.ToString();
+    }
+
+    private void ClearHash()
+    {
+        _hashInput = string.Empty;
+        _hashOutput = string.Empty;
+        _hashErrorMessage = string.Empty;
+    }
+
+    private void ClearHmac()
+    {
+        _hmacInput = string.Empty;
+        _hmacKey = string.Empty;
+        _hmacOutput = string.Empty;
+        _hmacErrorMessage = string.Empty;
+    }
+}

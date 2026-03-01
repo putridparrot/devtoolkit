@@ -1,0 +1,49 @@
+@using DevToolkit.Shared.Services
+@attribute [ToolSettings("/har")]
+@inject ISettingsService SettingsService
+
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
+    <FluentCheckbox @bind-Value="_filterSensitiveData" Label="Filter sensitive data from HAR files" />
+    <FluentCheckbox @bind-Value="_showTimingDetails" Label="Show detailed timing information" />
+</FluentStack>
+
+<FluentButton Appearance="Appearance.Accent" OnClick="SaveAsync" Style="margin-top: 10px;">Save</FluentButton>
+
+@if (!string.IsNullOrWhiteSpace(_statusMessage))
+{
+    <FluentMessageBar Intent="@_intent" Style="margin-top: 10px;">@_statusMessage</FluentMessageBar>
+}
+
+@code {
+    private bool _filterSensitiveData = true;
+    private bool _showTimingDetails;
+    private string _statusMessage = string.Empty;
+    private MessageIntent _intent = MessageIntent.Success;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var settings = await SettingsService.LoadSettingsAsync();
+        _filterSensitiveData = settings.Har.FilterSensitiveData;
+        _showTimingDetails = settings.Har.ShowTimingDetails;
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var settings = await SettingsService.LoadSettingsAsync();
+            settings.Har.FilterSensitiveData = _filterSensitiveData;
+            settings.Har.ShowTimingDetails = _showTimingDetails;
+            await SettingsService.SaveSettingsAsync(settings);
+            _statusMessage = "Saved!";
+            _intent = MessageIntent.Success;
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error: {ex.Message}";
+            _intent = MessageIntent.Error;
+        }
+
+        _ = Task.Delay(3000).ContinueWith(_ => { _statusMessage = string.Empty; InvokeAsync(StateHasChanged); });
+    }
+}
