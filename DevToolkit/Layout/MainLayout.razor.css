@@ -33,6 +33,18 @@
     flex-direction: column;
 }
 
+.title-light {
+    color: #ffffff;
+}
+
+.title-dark {
+    color: #ffffff;
+}
+
+.title-system {
+    color: inherit;
+}
+
 #blazor-error-ui {
     color-scheme: light only;
     background: lightyellow;

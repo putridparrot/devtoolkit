@@ -16,7 +16,9 @@
 
 
         <div class="title-bar">
-            <FluentLabel Typo="Typography.Header">@CurrentTitle</FluentLabel>
+            <FluentLabel Typo="Typography.Header"
+                         Class="@GetTitleClass()"
+                         Style="@GetTitleStyle()">@CurrentTitle</FluentLabel>
             <FluentButton Appearance="Appearance.Lightweight"
                           OnClick="NavigateToSettings"
                           Title="Settings"
@@ -93,7 +95,7 @@
 
         CurrentTitle = path switch
         {
-            "/" => "DevToolkit",
+            "/" => "Dev Toolkit",
             "/settings" => "Dev Toolkit - Settings",
             _ when tool is not null => $"Dev Toolkit - {tool.Name}",
             _ => "Dev Toolkit"
@@ -122,6 +124,20 @@
     {
         NavigationManager.NavigateTo("/settings");
     }
+
+    private string GetTitleClass() => _currentMode switch
+    {
+        DesignThemeModes.Light => "title-light",
+        DesignThemeModes.Dark => "title-dark",
+        _ => "title-system"
+    };
+
+    private string GetTitleStyle() => _currentMode switch
+    {
+        DesignThemeModes.Light => "--neutral-foreground-rest: #ffffff;",
+        DesignThemeModes.Dark => "--neutral-foreground-rest: #ffffff;",
+        _ => string.Empty
+    };
 
     public void Dispose()
     {
