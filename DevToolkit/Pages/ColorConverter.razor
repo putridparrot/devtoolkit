@@ -1,0 +1,234 @@
+@page "/color"
+@using DevToolkit.Infrastructure
+@attribute [ToolPage("Color", "🎨", "Convert between HEX, RGB, and HSL color formats.", 9)]
+
+<PageTitle>Color Converter</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
+    <FluentLabel Typo="Typography.PageTitle">Color Converter</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
+            <FluentLabel Typo="Typography.Subject">HEX</FluentLabel>
+            <FluentTextField Value="@_hexInput" ValueChanged="@((string v) => _hexInput = v)" Placeholder="#4f46e5" Style="width: 220px;" />
+
+            <FluentLabel Typo="Typography.Subject">RGB</FluentLabel>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; align-items: center; flex-wrap: wrap;">
+                <FluentNumberField Value="@_rInput" ValueChanged="@((int? v) => _rInput = ClampByte(v))" Min="0" Max="255" Step="1" Style="width: 100px;" />
+                <FluentNumberField Value="@_gInput" ValueChanged="@((int? v) => _gInput = ClampByte(v))" Min="0" Max="255" Step="1" Style="width: 100px;" />
+                <FluentNumberField Value="@_bInput" ValueChanged="@((int? v) => _bInput = ClampByte(v))" Min="0" Max="255" Step="1" Style="width: 100px;" />
+            </FluentStack>
+
+            <FluentLabel Typo="Typography.Subject">HSL</FluentLabel>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; align-items: center; flex-wrap: wrap;">
+                <FluentNumberField Value="@_hInput" ValueChanged="@((double? v) => _hInput = Clamp(v, 0, 360))" Min="0" Max="360" Step="1" Style="width: 100px;" />
+                <FluentNumberField Value="@_sInput" ValueChanged="@((double? v) => _sInput = Clamp(v, 0, 100))" Min="0" Max="100" Step="1" Style="width: 100px;" />
+                <FluentNumberField Value="@_lInput" ValueChanged="@((double? v) => _lInput = Clamp(v, 0, 100))" Min="0" Max="100" Step="1" Style="width: 100px;" />
+            </FluentStack>
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="ConvertFromHex">From HEX</FluentButton>
+                <FluentButton Appearance="Appearance.Accent" OnClick="ConvertFromRgb">From RGB</FluentButton>
+                <FluentButton Appearance="Appearance.Accent" OnClick="ConvertFromHsl">From HSL</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="SetRandomColor">Random</FluentButton>
+            </FluentStack>
+
+            @if (!string.IsNullOrWhiteSpace(_errorMessage))
+            {
+                <FluentMessageBar Intent="MessageIntent.Error">@_errorMessage</FluentMessageBar>
+            }
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentLabel Typo="Typography.Subject">Preview</FluentLabel>
+        <div class="color-preview" style="background-color: @_currentHex"></div>
+
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 8px; margin-top: 10px;">
+            <FluentLabel><strong>HEX:</strong> @_currentHex</FluentLabel>
+            <FluentLabel><strong>RGB:</strong> rgb(@_currentR, @_currentG, @_currentB)</FluentLabel>
+            <FluentLabel><strong>HSL:</strong> hsl(@Math.Round(_currentH), @Math.Round(_currentS)%, @Math.Round(_currentL)%)</FluentLabel>
+        </FluentStack>
+    </FluentCard>
+</FluentStack>
+</div>
+
+@code {
+    private string _hexInput = "#4f46e5";
+    private int _rInput = 79;
+    private int _gInput = 70;
+    private int _bInput = 229;
+    private double _hInput;
+    private double _sInput;
+    private double _lInput;
+
+    private string _errorMessage = string.Empty;
+
+    private string _currentHex = "#4F46E5";
+    private int _currentR = 79;
+    private int _currentG = 70;
+    private int _currentB = 229;
+    private double _currentH;
+    private double _currentS;
+    private double _currentL;
+
+    protected override void OnInitialized()
+    {
+        ConvertFromHex();
+    }
+
+    private void ConvertFromHex()
+    {
+        _errorMessage = string.Empty;
+
+        try
+        {
+            var hex = _hexInput.Trim().TrimStart('#');
+            if (hex.Length == 3)
+            {
+                hex = string.Concat(hex.Select(c => $"{c}{c}"));
+            }
+
+            if (hex.Length != 6)
+                throw new InvalidOperationException("HEX must be 3 or 6 characters.");
+
+            var r = Convert.ToInt32(hex.Substring(0, 2), 16);
+            var g = Convert.ToInt32(hex.Substring(2, 2), 16);
+            var b = Convert.ToInt32(hex.Substring(4, 2), 16);
+
+            ApplyRgb(r, g, b);
+            _rInput = r;
+            _gInput = g;
+            _bInput = b;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Invalid HEX value: {ex.Message}";
+        }
+    }
+
+    private void ConvertFromRgb()
+    {
+        _errorMessage = string.Empty;
+        ApplyRgb(_rInput, _gInput, _bInput);
+    }
+
+    private void ConvertFromHsl()
+    {
+        _errorMessage = string.Empty;
+
+        var h = _hInput / 360d;
+        var s = _sInput / 100d;
+        var l = _lInput / 100d;
+
+        double r, g, b;
+
+        if (s == 0)
+        {
+            r = g = b = l;
+        }
+        else
+        {
+            var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            var p = 2 * l - q;
+            r = HueToRgb(p, q, h + 1d / 3d);
+            g = HueToRgb(p, q, h);
+            b = HueToRgb(p, q, h - 1d / 3d);
+        }
+
+        var ri = (int)Math.Round(r * 255);
+        var gi = (int)Math.Round(g * 255);
+        var bi = (int)Math.Round(b * 255);
+
+        _rInput = ri;
+        _gInput = gi;
+        _bInput = bi;
+        ApplyRgb(ri, gi, bi);
+    }
+
+    private void SetRandomColor()
+    {
+        var random = new Random();
+        var r = random.Next(0, 256);
+        var g = random.Next(0, 256);
+        var b = random.Next(0, 256);
+
+        _rInput = r;
+        _gInput = g;
+        _bInput = b;
+        ApplyRgb(r, g, b);
+        _errorMessage = string.Empty;
+    }
+
+    private void ApplyRgb(int r, int g, int b)
+    {
+        _currentR = ClampByte(r);
+        _currentG = ClampByte(g);
+        _currentB = ClampByte(b);
+
+        _currentHex = $"#{_currentR:X2}{_currentG:X2}{_currentB:X2}";
+        _hexInput = _currentHex;
+
+        var (h, s, l) = RgbToHsl(_currentR, _currentG, _currentB);
+        _currentH = h;
+        _currentS = s;
+        _currentL = l;
+
+        _hInput = h;
+        _sInput = s;
+        _lInput = l;
+    }
+
+    private static (double H, double S, double L) RgbToHsl(int r, int g, int b)
+    {
+        var rd = r / 255d;
+        var gd = g / 255d;
+        var bd = b / 255d;
+
+        var max = Math.Max(rd, Math.Max(gd, bd));
+        var min = Math.Min(rd, Math.Min(gd, bd));
+        var h = 0d;
+        var s = 0d;
+        var l = (max + min) / 2d;
+
+        if (Math.Abs(max - min) > double.Epsilon)
+        {
+            var d = max - min;
+            s = l > 0.5 ? d / (2d - max - min) : d / (max + min);
+
+            if (Math.Abs(max - rd) < double.Epsilon)
+                h = (gd - bd) / d + (gd < bd ? 6 : 0);
+            else if (Math.Abs(max - gd) < double.Epsilon)
+                h = (bd - rd) / d + 2;
+            else
+                h = (rd - gd) / d + 4;
+
+            h /= 6;
+        }
+
+        return (h * 360, s * 100, l * 100);
+    }
+
+    private static double HueToRgb(double p, double q, double t)
+    {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1d / 6d) return p + (q - p) * 6 * t;
+        if (t < 1d / 2d) return q;
+        if (t < 2d / 3d) return p + (q - p) * (2d / 3d - t) * 6;
+        return p;
+    }
+
+    private static int ClampByte(int? value)
+    {
+        if (value is null) return 0;
+        return Math.Min(255, Math.Max(0, value.Value));
+    }
+
+    private static double Clamp(double? value, double min, double max)
+    {
+        if (value is null) return min;
+        return Math.Min(max, Math.Max(min, value.Value));
+    }
+}

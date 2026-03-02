@@ -1,0 +1,95 @@
+@page "/guid"
+@using DevToolkit.Infrastructure
+@attribute [ToolPage("GUID/UUID", "🧬", "Generate GUIDs in multiple formats including bulk generation.", 8)]
+
+<PageTitle>GUID/UUID</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
+    <FluentLabel Typo="Typography.PageTitle">GUID / UUID Tools</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
+            <FluentLabel Typo="Typography.Subject">Generate Single GUID</FluentLabel>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="GenerateSingle">Generate</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="ClearSingle">Clear</FluentButton>
+            </FluentStack>
+
+            <FluentLabel><strong>D</strong> (default): @_singleGuidD</FluentLabel>
+            <FluentLabel><strong>N</strong> (digits): @_singleGuidN</FluentLabel>
+            <FluentLabel><strong>B</strong> (braces): @_singleGuidB</FluentLabel>
+            <FluentLabel><strong>P</strong> (parentheses): @_singleGuidP</FluentLabel>
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
+            <FluentLabel Typo="Typography.Subject">Bulk Generate</FluentLabel>
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; align-items: center;">
+                <FluentLabel>Count</FluentLabel>
+                <FluentNumberField Value="@_bulkCount" ValueChanged="@((int? v) => _bulkCount = v ?? 10)" Min="1" Max="500" Step="1" Style="width: 120px;" />
+                <FluentLabel>Format</FluentLabel>
+                <FluentSelect Items="@_formats" @bind-SelectedOption="_selectedFormat" Style="width: 140px;">
+                    <OptionTemplate>@context</OptionTemplate>
+                </FluentSelect>
+            </FluentStack>
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="GenerateBulk">Generate List</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="ClearBulk">Clear</FluentButton>
+            </FluentStack>
+
+            <FluentTextArea Value="@_bulkOutput" ValueChanged="@((string v) => _bulkOutput = v)" Rows="12" Style="width: 100%; font-family: monospace;" Placeholder="Generated GUID list appears here..." />
+        </FluentStack>
+    </FluentCard>
+</FluentStack>
+</div>
+
+@code {
+    private string _singleGuidD = "-";
+    private string _singleGuidN = "-";
+    private string _singleGuidB = "-";
+    private string _singleGuidP = "-";
+
+    private int _bulkCount = 10;
+    private readonly List<string> _formats = new() { "D", "N", "B", "P" };
+    private string _selectedFormat = "D";
+    private string _bulkOutput = string.Empty;
+
+    private void GenerateSingle()
+    {
+        var guid = global::System.Guid.NewGuid();
+        _singleGuidD = guid.ToString("D");
+        _singleGuidN = guid.ToString("N");
+        _singleGuidB = guid.ToString("B");
+        _singleGuidP = guid.ToString("P");
+    }
+
+    private void ClearSingle()
+    {
+        _singleGuidD = "-";
+        _singleGuidN = "-";
+        _singleGuidB = "-";
+        _singleGuidP = "-";
+    }
+
+    private void GenerateBulk()
+    {
+        var format = string.IsNullOrWhiteSpace(_selectedFormat) ? "D" : _selectedFormat;
+        var lines = new List<string>(_bulkCount);
+
+        for (var i = 0; i < _bulkCount; i++)
+        {
+            lines.Add(global::System.Guid.NewGuid().ToString(format));
+        }
+
+        _bulkOutput = string.Join(Environment.NewLine, lines);
+    }
+
+    private void ClearBulk()
+    {
+        _bulkOutput = string.Empty;
+    }
+}

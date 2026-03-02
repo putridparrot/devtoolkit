@@ -1,0 +1,99 @@
+@page "/settings"
+@using DevToolkit.Infrastructure
+@using DevToolkit.Services
+@inject ISettingsService SettingsService
+@inject IThemeService ThemeService
+@implements IDisposable
+
+<PageTitle>Settings</PageTitle>
+
+<div class="page-container" @key="_themeRenderKey">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
+    <FluentLabel Typo="Typography.PageTitle">Settings</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentTabs>
+            @foreach (var tool in ToolRegistry.Tools.Where(t => t.SettingsComponentType is not null))
+            {
+                <FluentTab Label="@tool.Name">
+                    <FluentStack Orientation="Orientation.Vertical" Style="gap: 15px; padding: 20px;">
+                        <FluentLabel Typo="Typography.Subject">@tool.Name Configuration</FluentLabel>
+                        <DynamicComponent Type="@tool.SettingsComponentType" />
+                    </FluentStack>
+                </FluentTab>
+            }
+
+            <FluentTab Label="General">
+                <FluentStack Orientation="Orientation.Vertical" Style="gap: 15px; padding: 20px;">
+                    <FluentLabel Typo="Typography.Subject">General Settings</FluentLabel>
+
+                    <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
+                        <FluentLabel>Theme</FluentLabel>
+                        <FluentSelect Items="@_themes" @bind-SelectedOption="_selectedTheme" Style="width: 200px;">
+                            <OptionTemplate>@context</OptionTemplate>
+                        </FluentSelect>
+                    </FluentStack>
+
+                    <FluentButton Appearance="Appearance.Accent" OnClick="SaveGeneralSettings">Save</FluentButton>
+
+                    @if (!string.IsNullOrWhiteSpace(_generalMessage))
+                    {
+                        <FluentMessageBar Intent="@_generalMessageIntent">@_generalMessage</FluentMessageBar>
+                    }
+                </FluentStack>
+            </FluentTab>
+        </FluentTabs>
+    </FluentCard>
+</FluentStack>
+</div>
+
+@code {
+    private readonly List<string> _themes = ["System", "Light", "Dark"];
+    private string _selectedTheme = "System";
+    private string _generalMessage = string.Empty;
+    private MessageIntent _generalMessageIntent = MessageIntent.Success;
+    private int _themeRenderKey;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ThemeService.ThemeChanged += OnThemeChanged;
+        var settings = await SettingsService.LoadSettingsAsync();
+        _selectedTheme = settings.General.Theme;
+    }
+
+    private void OnThemeChanged(string theme)
+    {
+        _selectedTheme = theme switch
+        {
+            "light" => "Light",
+            "dark" => "Dark",
+            _ => "System"
+        };
+        _themeRenderKey++;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SaveGeneralSettings()
+    {
+        try
+        {
+            var settings = await SettingsService.LoadSettingsAsync();
+            settings.General.Theme = _selectedTheme;
+            await SettingsService.SaveSettingsAsync(settings);
+            ThemeService.SetTheme(_selectedTheme);
+            _generalMessage = "General settings saved!";
+            _generalMessageIntent = MessageIntent.Success;
+            _ = Task.Delay(3000).ContinueWith(_ => { _generalMessage = string.Empty; InvokeAsync(StateHasChanged); });
+        }
+        catch (Exception ex)
+        {
+            _generalMessage = $"Error saving settings: {ex.Message}";
+            _generalMessageIntent = MessageIntent.Error;
+        }
+    }
+
+    public void Dispose()
+    {
+        ThemeService.ThemeChanged -= OnThemeChanged;
+    }
+}
