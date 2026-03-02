@@ -24,11 +24,15 @@
     }
 }
 
-.tool-card {
-    padding: 15px;
-    cursor: pointer;
-    height: 100%;
-    min-width: 0;
+::deep .tool-card {
+	padding: 15px;
+	cursor: pointer;
+	height: 100%;
+	min-width: 0;
+}
+
+::deep .tool-card * {
+	cursor: pointer;
 }
 
 @media (max-width: 1200px) {
