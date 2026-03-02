@@ -28,22 +28,22 @@ jobs:
         run: dotnet --info
 
       - name: Restore NuGet packages
-        run: dotnet restore DevToolkit/DevToolkit/DevToolkit.csproj
+        run: dotnet restore DevToolkit/DevToolkit.csproj
 
       - name: Build Blazor WebAssembly (Release)
-        run: dotnet build DevToolkit/DevToolkit/DevToolkit.csproj -c Release --no-restore --verbosity normal
+        run: dotnet build DevToolkit/DevToolkit.csproj -c Release --no-restore --verbosity normal
 
       - name: Publish Blazor WebAssembly(Release)
         run: |
           set -e
-          dotnet publish DevToolkit/DevToolkit/DevToolkit.csproj -c Release --no-restore --no-build -o DevToolkit/DevToolkit/bin/Release/net10.0/publish --verbosity normal
+          dotnet publish DevToolkit/DevToolkit.csproj -c Release --no-restore --no-build -o DevToolkit/bin/Release/net10.0/publish --verbosity normal
 
       - name: List Publish Directory
         run: |
           echo "Listing contents of client publish directory:"
-          ls -l DevToolkit/DevToolkit/bin/Release/net10.0/publish/wwwroot || echo "Client publish wwwroot directory not found"
+          ls -l DevToolkit/bin/Release/net10.0/publish/wwwroot || echo "Client publish wwwroot directory not found"
           echo "Listing contents of client publish root:"
-          ls -l DevToolkit/DevToolkit/bin/Release/net10.0/publish || echo "Client publish root directory not found"
+          ls -l DevToolkit/bin/Release/net10.0/publish || echo "Client publish root directory not found"
 
       - name: Build And Deploy
         id: builddeploy
@@ -56,7 +56,7 @@ jobs:
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
           app_location: "/" # Repo root so output_location is resolved from root
           api_location: "" # Api source code path - optional
-          output_location: "DevToolkit/DevToolkit/bin/Release/net10.0/publish/wwwroot" # Pre-built WASM output
+          output_location: "DevToolkit/bin/Release/net10.0/publish/wwwroot" # Pre-built WASM output
           skip_app_build: true # We pre-build above; skip Oryx auto-build
           ###### End of Repository/Build Configurations ######
 
