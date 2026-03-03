@@ -4,14 +4,13 @@
 @inject IThemeService ThemeService
 @using DevToolkit.Infrastructure
 @using DevToolkit.Services
-@using Microsoft.FluentUI.AspNetCore.Components.Icons.Filled
 @implements IDisposable
 
-<FluentDesignTheme @bind-Mode="@_currentMode" StorageName="theme" />
+<FluentDesignTheme @bind-Mode="@_currentMode" StorageName="theme"/>
 <FluentLayout Style="height: 100vh; display: flex; flex-direction: column;">
-    <FluentHeader Style="flex-shrink: 0;">
-        <FluentButton Appearance="Appearance.Stealth" OnClick="ToggleNav">
-            <FluentIcon Icon="Icons.Regular.Size24.Navigation" />
+    <FluentHeader Style="flex-shrink: 0; background-color: #1e1e1e">
+        <FluentButton Appearance="Appearance.Stealth" OnClick="ToggleNav" BackgroundColor="transparent">
+            <FluentIcon Icon="Icons.Regular.Size24.Navigation" Color="Color.Custom" CustomColor="white" Style="fill: white; background-color: transparent" />
         </FluentButton>
 
 
@@ -19,11 +18,12 @@
             <FluentLabel Typo="Typography.Header"
                          Class="@GetTitleClass()"
                          Style="@GetTitleStyle()">@CurrentTitle</FluentLabel>
-            <FluentButton Appearance="Appearance.Lightweight"
+            <FluentButton Appearance="Appearance.Stealth"
+                          BackgroundColor="transparent"
                           OnClick="NavigateToSettings"
                           Title="Settings"
-                          Class="settings-button icon-only">
-                <FluentIcon Icon="Icons.Regular.Size20.Settings"/>
+                          Class="settings-button icon-only" >
+                <FluentIcon Icon="Icons.Regular.Size20.Settings" Style="fill: white; background-color: transparent" />
             </FluentButton>
         </div>
     </FluentHeader>

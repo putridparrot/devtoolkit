@@ -11,8 +11,7 @@
     top: 100% !important;
     bottom: auto !important;
 }
-@import '/_content/Microsoft.FluentUI.AspNetCore.Components/css/reboot.css';
-@import '/_content/Microsoft.FluentUI.AspNetCore.Components/css/styles.css';
+/* Fluent styles are already included via DevToolkit.styles.css reference in index.html */
 
 body {
     --body-font: "Segoe UI Variable", "Segoe UI", sans-serif;
@@ -219,3 +218,23 @@ code {
         padding-left: env(safe-area-inset-left);
     }
 }
+
+
+:root {
+    --shell-background: #f5f5f7;
+    --shell-foreground: #101828;
+}
+
+body[data-theme='dark'] {
+    --shell-background: #1e1e1e;
+    --shell-foreground: #f1f5f9;
+    --neutral-layer-1: red;
+    --neutral-layer-2: yellow;
+    --accent-fill-rest: #007acc;
+    color: var(--shell-foreground);
+    background-color: var(--shell-background);
+}
+
+    body[data-theme='dark'] fluent-card {
+        --fill-color: #252526;
+    }
