@@ -1,5 +1,6 @@
 @page "/color"
 @using DevToolkit.Infrastructure
+@inject IJSRuntime JSRuntime
 @attribute [ToolPage("Color", "🎨", "Convert between HEX, RGB, and HSL color formats.", 9)]
 
 <PageTitle>Color Converter</PageTitle>
@@ -46,9 +47,24 @@
         <div class="color-preview" style="background-color: @_currentHex"></div>
 
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 8px; margin-top: 10px;">
-            <FluentLabel><strong>HEX:</strong> @_currentHex</FluentLabel>
-            <FluentLabel><strong>RGB:</strong> rgb(@_currentR, @_currentG, @_currentB)</FluentLabel>
-            <FluentLabel><strong>HSL:</strong> hsl(@Math.Round(_currentH), @Math.Round(_currentS)%, @Math.Round(_currentL)%)</FluentLabel>
+                <FluentLabel Style="display: flex; align-items: center; gap: 6px;">
+                    <strong>HEX:</strong> @_currentHex
+                <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(_currentHex)">
+                    <FluentIcon Icon="Icons.Regular.Size20.Copy" />
+                </FluentButton>
+            </FluentLabel>
+                <FluentLabel Style="display: flex; align-items: center; gap: 6px;">
+                    <strong>RGB:</strong> @CurrentRgb
+                <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(CurrentRgb)">
+                    <FluentIcon Icon="Icons.Regular.Size20.Copy" />
+                </FluentButton>
+            </FluentLabel>
+                <FluentLabel Style="display: flex; align-items: center; gap: 6px;">
+                    <strong>HSL:</strong> @CurrentHsl
+                <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(CurrentHsl)">
+                    <FluentIcon Icon="Icons.Regular.Size20.Copy" />
+                </FluentButton>
+            </FluentLabel>
         </FluentStack>
     </FluentCard>
 </FluentStack>
@@ -72,6 +88,9 @@
     private double _currentH;
     private double _currentS;
     private double _currentL;
+
+    private string CurrentRgb => $"rgb({_currentR}, {_currentG}, {_currentB})";
+    private string CurrentHsl => $"hsl({Math.Round(_currentH)}, {Math.Round(_currentS)}%, {Math.Round(_currentL)}%)";
 
     protected override void OnInitialized()
     {
@@ -231,4 +250,13 @@
         if (value is null) return min;
         return Math.Min(max, Math.Max(min, value.Value));
     }
+
+    private async Task CopyToClipboard(string value)
+    {
+        if (!string.IsNullOrEmpty(value) && JSRuntime is not null)
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", value);
+        }
+    }
+
 }
