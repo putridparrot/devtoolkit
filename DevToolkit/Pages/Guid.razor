@@ -1,5 +1,6 @@
 @page "/guid"
 @using DevToolkit.Infrastructure
+@inject IJSRuntime JSRuntime
 @attribute [ToolPage("GUID/UUID", "🧬", "Generate GUIDs in multiple formats including bulk generation.", 8)]
 
 <PageTitle>GUID/UUID</PageTitle>
@@ -8,20 +9,52 @@
 <FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
     <FluentLabel Typo="Typography.PageTitle">GUID / UUID Tools</FluentLabel>
 
-    <FluentCard Style="padding: 20px;">
-        <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
-            <FluentLabel Typo="Typography.Subject">Generate Single GUID</FluentLabel>
-            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
-                <FluentButton Appearance="Appearance.Accent" OnClick="GenerateSingle">Generate</FluentButton>
-                <FluentButton Appearance="Appearance.Outline" OnClick="ClearSingle">Clear</FluentButton>
-            </FluentStack>
+        <FluentCard Style="padding: 20px;">
+            <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
+                <FluentLabel Typo="Typography.Subject">Generate Single GUID</FluentLabel>
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
+                    <FluentButton Appearance="Appearance.Accent" OnClick="GenerateSingle">Generate</FluentButton>
+                    <FluentButton Appearance="Appearance.Outline" OnClick="ClearSingle">Clear</FluentButton>
+                </FluentStack>
 
-            <FluentLabel><strong>D</strong> (default): @_singleGuidD</FluentLabel>
-            <FluentLabel><strong>N</strong> (digits): @_singleGuidN</FluentLabel>
-            <FluentLabel><strong>B</strong> (braces): @_singleGuidB</FluentLabel>
-            <FluentLabel><strong>P</strong> (parentheses): @_singleGuidP</FluentLabel>
-        </FluentStack>
-    </FluentCard>
+                <FluentLabel Style="display: flex; align-items: center; gap: 6px;">
+                    <span><strong>D</strong> (default): @_singleGuidD</span>
+                    @if (HasGuidValue(_singleGuidD))
+                    {
+                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(_singleGuidD)">
+                            <FluentIcon Icon="Icons.Regular.Size20.Copy" />
+                        </FluentButton>
+                    }
+                </FluentLabel>
+                <FluentLabel Style="display: flex; align-items: center; gap: 6px;">
+                    <span><strong>N</strong> (digits): @_singleGuidN</span>
+                    @if (HasGuidValue(_singleGuidN))
+                    {
+                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(_singleGuidN)">
+                            <FluentIcon Icon="Icons.Regular.Size20.Copy" />
+                        </FluentButton>
+                    }
+                </FluentLabel>
+                <FluentLabel Style="display: flex; align-items: center; gap: 6px;">
+                    <span><strong>B</strong> (braces): @_singleGuidB</span>
+                    @if (HasGuidValue(_singleGuidB))
+                    {
+                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(_singleGuidB)">
+                            <FluentIcon Icon="Icons.Regular.Size20.Copy" />
+                        </FluentButton>
+                    }
+                </FluentLabel>
+                <FluentLabel Style="display: flex; align-items: center; gap: 6px;">
+                    <span><strong>P</strong> (parentheses): @_singleGuidP</span>
+                    @if (HasGuidValue(_singleGuidP))
+                    {
+                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(_singleGuidP)">
+                            <FluentIcon Icon="Icons.Regular.Size20.Copy" />
+                        </FluentButton>
+                    }
+                </FluentLabel>
+            </FluentStack>
+        </FluentCard>
 
     <FluentCard Style="padding: 20px;">
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
@@ -92,6 +125,20 @@
     {
         _bulkOutput = string.Empty;
     }
+
+    private async Task CopyToClipboard(string value)
+    {
+        if (!string.IsNullOrEmpty(value) && JSRuntime is not null)
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", value);
+        }
+    }
+
+    private static bool HasGuidValue(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value) && !string.Equals(value, "-", StringComparison.Ordinal);
+    }
+
 }
 
 <style>
@@ -109,7 +156,6 @@
 </style>
 
 
-document.addEventListener('DOMContentLoaded', function() {
 <script>
 (function () {
     const allowedKeys = new Set(['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Tab', 'Enter', 'Escape']);
