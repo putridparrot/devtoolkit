@@ -11,7 +11,7 @@
 <FluentLayout Style="height: 100vh; display: flex; flex-direction: column;">
     <FluentHeader Style="flex-shrink: 0;">
         <FluentButton Appearance="Appearance.Stealth" OnClick="ToggleNav">
-            <FluentIcon Value="@(new Size24.Navigation())" />
+            <FluentIcon Icon="Icons.Regular.Size24.Navigation" />
         </FluentButton>
 
 
@@ -23,7 +23,7 @@
                           OnClick="NavigateToSettings"
                           Title="Settings"
                           Class="settings-button icon-only">
-                ⚙️
+                <FluentIcon Icon="Icons.Regular.Size20.Settings"/>
             </FluentButton>
         </div>
     </FluentHeader>

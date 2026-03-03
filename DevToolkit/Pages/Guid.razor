@@ -27,13 +27,13 @@
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
             <FluentLabel Typo="Typography.Subject">Bulk Generate</FluentLabel>
 
-            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; align-items: center;">
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; align-items: center; overflow: visible;">
                 <FluentLabel>Count</FluentLabel>
                 <FluentNumberField Value="@_bulkCount" ValueChanged="@((int? v) => _bulkCount = v ?? 10)" Min="1" Max="500" Step="1" Style="width: 120px;" />
                 <FluentLabel>Format</FluentLabel>
-                <FluentSelect Items="@_formats" @bind-SelectedOption="_selectedFormat" Style="width: 140px;">
+                <FluentCombobox Items="@_formats" @bind-SelectedOption="_selectedFormat" Style="width: 140px;" Class="readonly-combo">
                     <OptionTemplate>@context</OptionTemplate>
-                </FluentSelect>
+                </FluentCombobox>
             </FluentStack>
 
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
@@ -93,3 +93,76 @@
         _bulkOutput = string.Empty;
     }
 }
+
+<style>
+    .overlay-select .fluent-select__listbox,
+    .readonly-combo .fluent-combobox__listbox {
+        top: 100% !important;
+        bottom: auto !important;
+    }
+
+    /* Visual cue that the combo behaves like a select */
+    .readonly-combo::part(control) input {
+        caret-color: transparent;
+    }
+
+</style>
+
+
+document.addEventListener('DOMContentLoaded', function() {
+<script>
+(function () {
+    const allowedKeys = new Set(['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Tab', 'Enter', 'Escape']);
+
+    const blockInput = (event) => {
+        if (event.type === 'beforeinput') {
+            event.preventDefault();
+            return;
+        }
+
+        if (event.type === 'keydown') {
+            if (event.key && (event.key.length === 1 || !allowedKeys.has(event.key))) {
+                event.preventDefault();
+            }
+        }
+    };
+
+    const applyReadOnly = (combo) => {
+        if (!combo || combo.__readonlyApplied) {
+            return;
+        }
+
+        combo.__readonlyApplied = true;
+
+        const ensureInputState = () => {
+            const input = combo.shadowRoot?.querySelector('input');
+            if (!input) {
+                return;
+            }
+
+            if (!input.hasAttribute('readonly')) {
+                input.setAttribute('readonly', 'readonly');
+            }
+
+            input.addEventListener('beforeinput', blockInput);
+            input.addEventListener('keydown', blockInput);
+        };
+
+        ensureInputState();
+
+        if (combo.shadowRoot) {
+            const shadowObserver = new MutationObserver(ensureInputState);
+            shadowObserver.observe(combo.shadowRoot, { childList: true, subtree: true });
+        }
+    };
+
+    const initializeAll = () => {
+        document.querySelectorAll('fluent-combobox.readonly-combo').forEach(applyReadOnly);
+    };
+
+    initializeAll();
+
+    const domObserver = new MutationObserver(initializeAll);
+    domObserver.observe(document.body, { childList: true, subtree: true });
+})();
+</script>

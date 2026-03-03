@@ -1,3 +1,16 @@
+/* Global override: force FluentSelect and FluentCombobox dropdowns to open downwards */
+.fluent-select__listbox,
+.fluent-combobox__listbox {
+    top: 100% !important;
+    bottom: auto !important;
+    position: absolute !important;
+}
+/* Force FluentSelect and FluentCombobox dropdowns to open downwards */
+.overlay-select .fluent-select__listbox,
+.readonly-combo .fluent-combobox__listbox {
+    top: 100% !important;
+    bottom: auto !important;
+}
 @import '/_content/Microsoft.FluentUI.AspNetCore.Components/css/reboot.css';
 @import '/_content/Microsoft.FluentUI.AspNetCore.Components/css/styles.css';
 
