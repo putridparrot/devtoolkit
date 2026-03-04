@@ -150,6 +150,24 @@ code {
     color: #c02d76;
 }
 
+    .header {
+        /* background-color: var(--shell-background); */
+        --accent-fill-rest: var(--shell-background);
+    }
+
+    /* fluent-header {
+        --accent-fill-rest: var(--shell-background);
+    }
+
+    fluent-header::part(control) {
+        background-color: var(--shell-background);
+    } */
+
+.fluent-icon {
+    fill: #1e1e1e;
+    background-color: transparent;
+}
+
 @media (max-width: 600px) {
     .header-gutters {
         margin: 0.5rem 3rem 0.5rem 1.5rem !important;
@@ -251,6 +269,7 @@ body[data-theme='dark'] {
     body[data-theme='dark'] fluent-card {
         --fill-color: #252526;
     }
+
 
 /*    body[data-theme='dark'] fluent-button {
         --accent-fill-rest: #007acc;

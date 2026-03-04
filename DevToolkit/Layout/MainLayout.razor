@@ -8,22 +8,20 @@
 
 <FluentDesignTheme @bind-Mode="@_currentMode" StorageName="theme"/>
 <FluentLayout Style="height: 100vh; display: flex; flex-direction: column;">
-    <FluentHeader Style="flex-shrink: 0; background-color: #1e1e1e">
+    <FluentHeader Style="flex-shrink: 0">
         <FluentButton Appearance="Appearance.Stealth" OnClick="ToggleNav" BackgroundColor="transparent">
-            <FluentIcon Icon="Icons.Regular.Size24.Navigation" Color="Color.Custom" CustomColor="white" Style="fill: white; background-color: transparent" />
+            <FluentIcon Icon="Icons.Regular.Size24.Navigation" Color="Color.Custom" Class="fluent-icon" />
         </FluentButton>
 
 
         <div class="title-bar">
-            <FluentLabel Typo="Typography.Header"
-                         Class="@GetTitleClass()"
-                         Style="@GetTitleStyle()">@CurrentTitle</FluentLabel>
+            <FluentLabel Typo="Typography.Header">@CurrentTitle</FluentLabel>
             <FluentButton Appearance="Appearance.Stealth"
                           BackgroundColor="transparent"
                           OnClick="NavigateToSettings"
                           Title="Settings"
                           Class="settings-button icon-only" >
-                <FluentIcon Icon="Icons.Regular.Size20.Settings" Style="fill: white; background-color: transparent" />
+                <FluentIcon Icon="Icons.Regular.Size20.Settings" Color="Color.Custom" Class="fluent-icon" />
             </FluentButton>
         </div>
     </FluentHeader>
@@ -124,20 +122,6 @@
     {
         NavigationManager.NavigateTo("/settings");
     }
-
-    private string GetTitleClass() => _currentMode switch
-    {
-        DesignThemeModes.Light => "title-light",
-        DesignThemeModes.Dark => "title-dark",
-        _ => "title-system"
-    };
-
-    private string GetTitleStyle() => _currentMode switch
-    {
-        DesignThemeModes.Light => "--neutral-foreground-rest: #ffffff;",
-        DesignThemeModes.Dark => "--neutral-foreground-rest: #ffffff;",
-        _ => "--neutral-foreground-rest: #ffffff;"
-    };
 
     public void Dispose()
     {
