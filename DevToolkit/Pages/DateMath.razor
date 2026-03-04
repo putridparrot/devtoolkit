@@ -79,7 +79,7 @@
                     <input type="datetime-local" class="duration-input" value="@OffsetBaseInput" @onchange="OnOffsetBaseChanged" />
                 </div>
                 <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap; align-items: flex-end;">
-                    <div class="offset-input">
+                    <div class="offset-input" style="vertical-align: middle">
                         <label>Years</label>
                         <FluentNumberField Value="@_offsetYears" ValueChanged="@((int? v) => _offsetYears = v ?? 0)" Min="-20" Max="20" Style="width: 90px;" />
                     </div>
