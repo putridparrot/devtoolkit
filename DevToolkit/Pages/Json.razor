@@ -2,6 +2,10 @@
 @attribute [ToolPage("JSON", "🧾", "Format, minify, and validate JSON payloads.", 4)]
 @using System.Text.Json
 @using DevToolkit.Infrastructure
+@using DevToolkit.Services
+@using System.Threading
+@inject ISettingsService SettingsService
+@implements IDisposable
 
 <PageTitle>JSON</PageTitle>
 
@@ -13,7 +17,7 @@
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
             <FluentLabel Typo="Typography.Subject">Input JSON</FluentLabel>
             <FluentTextArea Value="@_jsonInput"
-                            ValueChanged="@((string v) => _jsonInput = v)"
+                            ValueChanged="OnJsonInputChanged"
                             Rows="12"
                             Style="width: 100%; font-family: monospace;" />
 
@@ -34,7 +38,7 @@
     <FluentCard Style="padding: 20px;">
         <FluentLabel Typo="Typography.Subject">Output</FluentLabel>
         <FluentTextArea Value="@_jsonOutput"
-                        ValueChanged="@((string v) => _jsonOutput = v)"
+                        ValueChanged="OnJsonOutputChanged"
                         Rows="12"
                         Style="width: 100%; margin-top: 10px; font-family: monospace;" />
     </FluentCard>
@@ -46,18 +50,37 @@
     private string _jsonOutput = string.Empty;
     private string _statusMessage = string.Empty;
     private MessageIntent _statusIntent = MessageIntent.Info;
+    private AppSettings? _settings;
+    private readonly TimeSpan _autosaveDelay = TimeSpan.FromMilliseconds(600);
+    private CancellationTokenSource? _autosaveCts;
+    private bool _settingsLoaded;
 
-    private void FormatJson()
+    protected override async Task OnInitializedAsync()
     {
-        ProcessJson(writeIndented: true, mode: "formatted");
+        _settings = await SettingsService.LoadSettingsAsync();
+        var stored = _settings.Json ??= new JsonToolsSettings();
+        _jsonInput = stored.LastInput ?? string.Empty;
+        _jsonOutput = stored.LastOutput ?? string.Empty;
+        _settingsLoaded = true;
     }
 
-    private void MinifyJson()
+    private async Task FormatJson()
     {
-        ProcessJson(writeIndented: false, mode: "minified");
+        if (ProcessJson(writeIndented: true, mode: "formatted"))
+        {
+            await PersistAsync();
+        }
     }
 
-    private void ValidateJson()
+    private async Task MinifyJson()
+    {
+        if (ProcessJson(writeIndented: false, mode: "minified"))
+        {
+            await PersistAsync();
+        }
+    }
+
+    private Task ValidateJson()
     {
         _statusMessage = string.Empty;
 
@@ -72,9 +95,11 @@
             _statusMessage = $"Invalid JSON: {ex.Message}";
             _statusIntent = MessageIntent.Error;
         }
+
+        return Task.CompletedTask;
     }
 
-    private void ProcessJson(bool writeIndented, string mode)
+    private bool ProcessJson(bool writeIndented, string mode)
     {
         _statusMessage = string.Empty;
 
@@ -84,18 +109,78 @@
             _jsonOutput = JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = writeIndented });
             _statusMessage = $"JSON {mode} successfully.";
             _statusIntent = MessageIntent.Success;
+            return true;
         }
         catch (Exception ex)
         {
             _statusMessage = $"Invalid JSON: {ex.Message}";
             _statusIntent = MessageIntent.Error;
+            return false;
         }
     }
 
-    private void ClearAll()
+    private async Task ClearAll()
     {
         _jsonInput = string.Empty;
         _jsonOutput = string.Empty;
         _statusMessage = string.Empty;
+        _statusIntent = MessageIntent.Info;
+        await PersistAsync();
+    }
+
+    private void OnJsonInputChanged(string value)
+    {
+        _jsonInput = value;
+        ScheduleAutoSave();
+    }
+
+    private void OnJsonOutputChanged(string value)
+    {
+        _jsonOutput = value;
+        ScheduleAutoSave();
+    }
+
+    private void ScheduleAutoSave()
+    {
+        if (!_settingsLoaded)
+        {
+            return;
+        }
+
+        _autosaveCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _autosaveCts = cts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(_autosaveDelay, cts.Token);
+                await InvokeAsync(PersistAsync);
+            }
+            catch (TaskCanceledException)
+            {
+            }
+        });
+    }
+
+    private async Task PersistAsync()
+    {
+        if (_settings is null)
+        {
+            return;
+        }
+
+        var jsonSettings = _settings.Json ??= new JsonToolsSettings();
+        jsonSettings.LastInput = _jsonInput;
+        jsonSettings.LastOutput = _jsonOutput;
+        jsonSettings.LastUpdated = DateTimeOffset.UtcNow;
+
+        await SettingsService.SaveSettingsAsync(_settings);
+    }
+
+    public void Dispose()
+    {
+        _autosaveCts?.Cancel();
     }
 }

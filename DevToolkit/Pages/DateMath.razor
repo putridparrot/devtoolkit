@@ -1,0 +1,504 @@
+@page "/date-math"
+@attribute [ToolPage("Date Math", "📅", "Compare ranges, build offsets, and understand durations.", 12)]
+@using DevToolkit.Infrastructure
+@using Microsoft.FluentUI.AspNetCore.Components
+@using System
+@using System.Collections.Generic
+@using System.Globalization
+
+<PageTitle>Date Math &amp; Duration Lab</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px;">
+    <FluentLabel Typo="Typography.PageTitle">Date Math &amp; Duration Lab</FluentLabel>
+
+    <FluentCard Style="padding: 20px; width: 100%;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 16px;">
+            <FluentLabel Typo="Typography.Subject">Duration Between Dates</FluentLabel>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; flex-wrap: wrap;">
+                <div class="duration-field">
+                    <label>Start</label>
+                    <input type="datetime-local" class="duration-input" value="@RangeStartInput" @onchange="OnRangeStartChanged" />
+                </div>
+                <div class="duration-field">
+                    <label>End</label>
+                    <input type="datetime-local" class="duration-input" value="@RangeEndInput" @onchange="OnRangeEndChanged" />
+                </div>
+                <div class="duration-field">
+                    <label>Precision</label>
+                    <FluentCombobox Items="@_precisionOptions" @bind-SelectedOption="_selectedPrecision" Style="min-width: 160px;" Class="readonly-combo">
+                        <OptionTemplate>@context</OptionTemplate>
+                    </FluentCombobox>
+                </div>
+            </FluentStack>
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="SetRangeLast24">Last 24h</FluentButton>
+                <FluentButton Appearance="Appearance.Accent" OnClick="SetRangeLast7">Last 7 days</FluentButton>
+                <FluentButton Appearance="Appearance.Accent" OnClick="SetRangeNext30">Next 30 days</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="SwapRange">Swap</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="SnapToMidnight">Snap to midnight</FluentButton>
+            </FluentStack>
+
+            @if (!string.IsNullOrWhiteSpace(_rangeMessage))
+            {
+                <FluentMessageBar Intent="@_rangeMessageIntent">@_rangeMessage</FluentMessageBar>
+            }
+
+            <div class="duration-grid">
+                @foreach (var metric in _durationMetrics)
+                {
+                    <div class="duration-card">
+                        <div class="duration-card-label">@metric.Label</div>
+                        <div class="duration-card-value">@metric.Value</div>
+                        <div class="duration-card-hint">@metric.Hint</div>
+                    </div>
+                }
+            </div>
+
+            <FluentLabel Typo="Typography.Body">Key timestamps</FluentLabel>
+            <div class="timeline-list">
+                @foreach (var point in _rangeTimeline)
+                {
+                    <div class="timeline-row">
+                        <span class="timeline-row-label">@point.Label</span>
+                        <span class="timeline-row-value">@point.Value</span>
+                        <span class="timeline-row-hint">@point.Hint</span>
+                    </div>
+                }
+            </div>
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Style="padding: 20px; width: 100%;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 16px;">
+            <FluentLabel Typo="Typography.Subject">Add / Subtract Duration</FluentLabel>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; flex-wrap: wrap;">
+                <div class="duration-field">
+                    <label>Anchor</label>
+                    <input type="datetime-local" class="duration-input" value="@OffsetBaseInput" @onchange="OnOffsetBaseChanged" />
+                </div>
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+                    <div class="offset-input">
+                        <label>Years</label>
+                        <FluentNumberField Value="@_offsetYears" ValueChanged="@((int? v) => _offsetYears = v ?? 0)" Min="-20" Max="20" Style="width: 90px;" />
+                    </div>
+                    <div class="offset-input">
+                        <label>Months</label>
+                        <FluentNumberField Value="@_offsetMonths" ValueChanged="@((int? v) => _offsetMonths = v ?? 0)" Min="-240" Max="240" Style="width: 90px;" />
+                    </div>
+                    <div class="offset-input">
+                        <label>Days</label>
+                        <FluentNumberField Value="@_offsetDays" ValueChanged="@((int? v) => _offsetDays = v ?? 0)" Min="-3650" Max="3650" Style="width: 90px;" />
+                    </div>
+                    <div class="offset-input">
+                        <label>Hours</label>
+                        <FluentNumberField Value="@_offsetHours" ValueChanged="@((int? v) => _offsetHours = v ?? 0)" Min="-1000" Max="1000" Style="width: 90px;" />
+                    </div>
+                    <div class="offset-input">
+                        <label>Minutes</label>
+                        <FluentNumberField Value="@_offsetMinutes" ValueChanged="@((int? v) => _offsetMinutes = v ?? 0)" Min="-60000" Max="60000" Style="width: 90px;" />
+                    </div>
+                </FluentStack>
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 8px; flex-wrap: wrap; align-items: center;">
+                    <FluentCheckbox @bind-Checked="_offsetInvert">Subtract instead</FluentCheckbox>
+                    <FluentButton Appearance="Appearance.Accent" OnClick="ApplyOffset">Apply offset</FluentButton>
+                    <FluentButton Appearance="Appearance.Outline" OnClick="ResetOffset">Reset</FluentButton>
+                </FluentStack>
+            </FluentStack>
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
+                <FluentButton Appearance="Appearance.Stealth" OnClick="() => ApplyOffsetPreset(TimeSpan.FromMinutes(30))">+30m</FluentButton>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="() => ApplyOffsetPreset(TimeSpan.FromHours(6))">+6h</FluentButton>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="() => ApplyOffsetPreset(TimeSpan.FromDays(1))">+1d</FluentButton>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="() => ApplyOffsetPreset(TimeSpan.FromDays(7))">+1w</FluentButton>
+            </FluentStack>
+
+            @if (_offsetSummary is not null)
+            {
+                <div class="offset-summary">
+                    <div>
+                        <span class="offset-label">Result</span>
+                        <span class="offset-value">@_offsetSummary.ResultLocal</span>
+                        <span class="offset-hint">Local</span>
+                    </div>
+                    <div>
+                        <span class="offset-label">UTC</span>
+                        <span class="offset-value">@_offsetSummary.ResultUtc</span>
+                        <span class="offset-hint">@_offsetSummary.RelativeText</span>
+                    </div>
+                </div>
+            }
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Style="padding: 20px; width: 100%;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 14px;">
+            <FluentLabel Typo="Typography.Subject">Breakdown</FluentLabel>
+            <div class="breakdown-list">
+                @foreach (var detail in _breakdownDetails)
+                {
+                    <div class="breakdown-item">
+                        <div class="breakdown-item-head">@detail.Label</div>
+                        <div class="breakdown-item-body">@detail.Description</div>
+                    </div>
+                }
+            </div>
+        </FluentStack>
+    </FluentCard>
+</FluentStack>
+</div>
+
+@code {
+    private DateTime _rangeStart = DateTime.Now.AddDays(-1);
+    private DateTime _rangeEnd = DateTime.Now;
+    private readonly List<string> _precisionOptions = new() { "Seconds", "Minutes", "Hours", "Days" };
+    private string _selectedPrecision = "Seconds";
+
+    private DateTime _offsetBase = DateTime.Now;
+    private int _offsetYears;
+    private int _offsetMonths;
+    private int _offsetDays;
+    private int _offsetHours;
+    private int _offsetMinutes;
+    private bool _offsetInvert;
+
+    private OffsetSummary? _offsetSummary;
+
+    private string? _rangeMessage;
+    private MessageIntent _rangeMessageIntent = MessageIntent.Info;
+
+    private readonly List<MetricView> _durationMetrics = new();
+    private readonly List<TimelineEntry> _rangeTimeline = new();
+    private readonly List<BreakdownEntry> _breakdownDetails = new();
+
+    protected override void OnInitialized()
+    {
+        RefreshDuration();
+        ApplyOffset();
+    }
+
+    private string RangeStartInput => _rangeStart.ToString("yyyy-MM-ddTHH:mm");
+    private string RangeEndInput => _rangeEnd.ToString("yyyy-MM-ddTHH:mm");
+    private string OffsetBaseInput => _offsetBase.ToString("yyyy-MM-ddTHH:mm");
+
+    private void OnRangeStartChanged(ChangeEventArgs args)
+    {
+        if (TryParseInput(args.Value, out var value))
+        {
+            _rangeStart = value;
+            RefreshDuration();
+        }
+    }
+
+    private void OnRangeEndChanged(ChangeEventArgs args)
+    {
+        if (TryParseInput(args.Value, out var value))
+        {
+            _rangeEnd = value;
+            RefreshDuration();
+        }
+    }
+
+    private void OnOffsetBaseChanged(ChangeEventArgs args)
+    {
+        if (TryParseInput(args.Value, out var value))
+        {
+            _offsetBase = value;
+            ApplyOffset();
+        }
+    }
+
+    private static bool TryParseInput(object? value, out DateTime result)
+    {
+        var text = value?.ToString();
+        if (!string.IsNullOrWhiteSpace(text) && DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
+        {
+            result = DateTime.SpecifyKind(parsed, DateTimeKind.Local);
+            return true;
+        }
+
+        result = DateTime.Now;
+        return false;
+    }
+
+    private void SetRangeLast24()
+    {
+        _rangeEnd = DateTime.Now;
+        _rangeStart = _rangeEnd.AddHours(-24);
+        RefreshDuration();
+    }
+
+    private void SetRangeLast7()
+    {
+        _rangeEnd = DateTime.Now;
+        _rangeStart = _rangeEnd.AddDays(-7);
+        RefreshDuration();
+    }
+
+    private void SetRangeNext30()
+    {
+        _rangeStart = DateTime.Now;
+        _rangeEnd = _rangeStart.AddDays(30);
+        RefreshDuration();
+    }
+
+    private void SwapRange()
+    {
+        (_rangeStart, _rangeEnd) = (_rangeEnd, _rangeStart);
+        RefreshDuration();
+    }
+
+    private void SnapToMidnight()
+    {
+        _rangeStart = _rangeStart.Date;
+        _rangeEnd = _rangeEnd.Date;
+        RefreshDuration();
+    }
+
+    private void RefreshDuration()
+    {
+        _durationMetrics.Clear();
+        _rangeTimeline.Clear();
+        _breakdownDetails.Clear();
+        _rangeMessage = null;
+
+        if (_rangeEnd < _rangeStart)
+        {
+            SetRangeMessage("End precedes start; swapped for calculations.", MessageIntent.Warning);
+            (_rangeStart, _rangeEnd) = (_rangeEnd, _rangeStart);
+        }
+
+        var span = _rangeEnd - _rangeStart;
+        var precisionSpan = PrecisionSpan(span);
+
+        _durationMetrics.Add(new MetricView("Total days", span.TotalDays.ToString("0.###", CultureInfo.InvariantCulture), "Exact calendar days"));
+        _durationMetrics.Add(new MetricView("Total hours", span.TotalHours.ToString("0.###", CultureInfo.InvariantCulture), "Includes fractional hours"));
+        _durationMetrics.Add(new MetricView("Total minutes", span.TotalMinutes.ToString("0.###", CultureInfo.InvariantCulture), "For timers &amp; SLAs"));
+        _durationMetrics.Add(new MetricView("Total seconds", span.TotalSeconds.ToString("N0", CultureInfo.InvariantCulture), "High-precision"));
+
+        var weeks = (int)(span.TotalDays / 7);
+        var remainingDays = span.TotalDays - (weeks * 7);
+        _durationMetrics.Add(new MetricView("Weeks + days", $"{weeks}w {remainingDays:0.##}d", "Sprint-friendly"));
+
+        var businessDays = CountBusinessDays(_rangeStart, _rangeEnd);
+        _durationMetrics.Add(new MetricView("Business days", businessDays.ToString(CultureInfo.InvariantCulture), "Mon-Fri only"));
+
+        _rangeTimeline.Add(new TimelineEntry("Start (local)", _rangeStart.ToString("ddd, MMM d HH:mm", CultureInfo.InvariantCulture), DescribeRelative(_rangeStart)));
+        _rangeTimeline.Add(new TimelineEntry("Start (UTC)", _rangeStart.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture), ""));
+        _rangeTimeline.Add(new TimelineEntry("End (local)", _rangeEnd.ToString("ddd, MMM d HH:mm", CultureInfo.InvariantCulture), DescribeRelative(_rangeEnd)));
+        _rangeTimeline.Add(new TimelineEntry("End (UTC)", _rangeEnd.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture), ""));
+        _rangeTimeline.Add(new TimelineEntry("Precision span", precisionSpan, $"Rounded to {_selectedPrecision.ToLowerInvariant()}"));
+
+        _breakdownDetails.Add(new BreakdownEntry("Span", DescribeSpanExact(span)));
+        _breakdownDetails.Add(new BreakdownEntry("Midpoint", MidpointDescription()));
+        _breakdownDetails.Add(new BreakdownEntry("Countdown", CountdownDescription(span)));
+        _breakdownDetails.Add(new BreakdownEntry("Business span", DescribeBusinessSpan(businessDays)));
+        _breakdownDetails.Add(new BreakdownEntry("ISO weeks", IsoWeekDescription()));
+        _breakdownDetails.Add(new BreakdownEntry("Weekday coverage", WeekdayCoverageDescription()));
+    }
+
+    private string PrecisionSpan(TimeSpan span)
+    {
+        return _selectedPrecision switch
+        {
+            "Minutes" => span.TotalMinutes.ToString("0.##", CultureInfo.InvariantCulture) + " min",
+            "Hours" => span.TotalHours.ToString("0.##", CultureInfo.InvariantCulture) + " h",
+            "Days" => span.TotalDays.ToString("0.##", CultureInfo.InvariantCulture) + " d",
+            _ => span.TotalSeconds.ToString("0", CultureInfo.InvariantCulture) + " s"
+        };
+    }
+
+    private static int CountBusinessDays(DateTime start, DateTime end)
+    {
+        var total = 0;
+        var current = start.Date;
+        while (current < end.Date)
+        {
+            if (current.DayOfWeek is not DayOfWeek.Saturday and not DayOfWeek.Sunday)
+            {
+                total++;
+            }
+
+            current = current.AddDays(1);
+        }
+
+        return total;
+    }
+
+    private string DescribeSpanExact(TimeSpan span)
+    {
+        var components = new List<string>();
+        if (span.Days != 0)
+        {
+            components.Add($"{span.Days} day{(Math.Abs(span.Days) == 1 ? string.Empty : "s")}");
+        }
+
+        if (span.Hours != 0)
+        {
+            components.Add($"{span.Hours} hour{(Math.Abs(span.Hours) == 1 ? string.Empty : "s")}");
+        }
+
+        if (span.Minutes != 0)
+        {
+            components.Add($"{span.Minutes} minute{(Math.Abs(span.Minutes) == 1 ? string.Empty : "s")}");
+        }
+
+        if (span.Seconds != 0 || components.Count == 0)
+        {
+            components.Add($"{span.Seconds} second{(Math.Abs(span.Seconds) == 1 ? string.Empty : "s")}");
+        }
+
+        return string.Join(", ", components);
+    }
+
+    private string MidpointDescription()
+    {
+        var midpoint = _rangeStart + ((_rangeEnd - _rangeStart) / 2);
+        return midpoint.ToString("ddd, MMM d yyyy HH:mm", CultureInfo.InvariantCulture) + $" ({DescribeRelative(midpoint)})";
+    }
+
+    private string CountdownDescription(TimeSpan span)
+    {
+        if (_rangeEnd < DateTime.Now)
+        {
+            return "Interval completed.";
+        }
+
+        var remaining = _rangeEnd - DateTime.Now;
+        return $"{remaining.TotalHours:0.##} hours remaining";
+    }
+
+    private void ApplyOffset()
+    {
+        var result = _offsetBase
+            .AddYears(_offsetInvert ? -_offsetYears : _offsetYears)
+            .AddMonths(_offsetInvert ? -_offsetMonths : _offsetMonths)
+            .AddDays(_offsetInvert ? -_offsetDays : _offsetDays)
+            .AddHours(_offsetInvert ? -_offsetHours : _offsetHours)
+            .AddMinutes(_offsetInvert ? -_offsetMinutes : _offsetMinutes);
+
+        _offsetSummary = new OffsetSummary(
+            result.ToString("ddd, MMM d HH:mm", CultureInfo.InvariantCulture),
+            result.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture),
+            DescribeRelative(result));
+    }
+
+    private void ResetOffset()
+    {
+        _offsetYears = _offsetMonths = _offsetDays = _offsetHours = _offsetMinutes = 0;
+        _offsetInvert = false;
+        ApplyOffset();
+    }
+
+    private void ApplyOffsetPreset(TimeSpan span)
+    {
+        _offsetYears = 0;
+        _offsetMonths = 0;
+        _offsetDays = span.Days;
+        _offsetHours = span.Hours;
+        _offsetMinutes = span.Minutes;
+        _offsetInvert = span < TimeSpan.Zero;
+        ApplyOffset();
+    }
+
+    private void SetRangeMessage(string message, MessageIntent intent)
+    {
+        _rangeMessage = message;
+        _rangeMessageIntent = intent;
+    }
+
+    private static string DescribeRelative(DateTime moment)
+    {
+        var now = DateTime.Now;
+        var delta = moment - now;
+        var suffix = delta.TotalSeconds >= 0 ? "from now" : "ago";
+        var magnitude = delta.Duration();
+
+        string value;
+        if (magnitude.TotalDays >= 1)
+        {
+            value = magnitude.TotalDays.ToString("0.#", CultureInfo.InvariantCulture) + " day" + (magnitude.TotalDays >= 2 ? "s" : string.Empty);
+        }
+        else if (magnitude.TotalHours >= 1)
+        {
+            value = magnitude.TotalHours.ToString("0.#", CultureInfo.InvariantCulture) + " hour" + (magnitude.TotalHours >= 2 ? "s" : string.Empty);
+        }
+        else if (magnitude.TotalMinutes >= 1)
+        {
+            value = magnitude.TotalMinutes.ToString("0.#", CultureInfo.InvariantCulture) + " min";
+        }
+        else
+        {
+            value = Math.Max(1, (int)magnitude.TotalSeconds) + " sec";
+        }
+
+        return $"{value} {suffix}";
+    }
+
+    private static string DescribeBusinessSpan(int businessDays)
+    {
+        return businessDays switch
+        {
+            <= 0 => "No weekdays in range",
+            1 => "1 business day (Mon-Fri)",
+            _ => $"{businessDays} business days (Mon-Fri)"
+        };
+    }
+
+    private string IsoWeekDescription()
+    {
+        var startWeek = ISOWeek.GetWeekOfYear(_rangeStart);
+        var endWeek = ISOWeek.GetWeekOfYear(_rangeEnd);
+        var startYear = ISOWeek.GetYear(_rangeStart);
+        var endYear = ISOWeek.GetYear(_rangeEnd);
+
+        if (startWeek == endWeek && startYear == endYear)
+        {
+            return $"Week {startWeek} of {startYear}";
+        }
+
+        return $"Week {startWeek} {startYear} -> Week {endWeek} {endYear}";
+    }
+
+    private string WeekdayCoverageDescription()
+    {
+        var coverage = new bool[7];
+        var cursor = _rangeStart.Date;
+        var end = _rangeEnd.Date;
+
+        while (cursor <= end)
+        {
+            coverage[(int)cursor.DayOfWeek] = true;
+            cursor = cursor.AddDays(1);
+        }
+
+        var names = new[] { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+        var included = new List<string>();
+
+        for (var i = 0; i < names.Length; i++)
+        {
+            if (coverage[i])
+            {
+                included.Add(names[i]);
+            }
+        }
+
+        if (included.Count == names.Length)
+        {
+            return "All days";
+        }
+
+        if (included.Count == 0)
+        {
+            return "No days covered";
+        }
+
+        return string.Join(", ", included);
+    }
+
+    private sealed record MetricView(string Label, string Value, string Hint);
+    private sealed record TimelineEntry(string Label, string Value, string Hint);
+    private sealed record BreakdownEntry(string Label, string Description);
+    private sealed record OffsetSummary(string ResultLocal, string ResultUtc, string RelativeText);
+}

@@ -6,4 +6,6 @@ public class AppSettings
     public JwtSettings Jwt { get; set; } = new();
     public HarSettings Har { get; set; } = new();
     public GeneralSettings General { get; set; } = new();
+    public JsonToolsSettings Json { get; set; } = new();
+    public JsonYamlSettings JsonYaml { get; set; } = new();
 }

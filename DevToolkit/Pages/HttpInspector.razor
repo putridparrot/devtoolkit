@@ -1,0 +1,595 @@
+@page "/http-inspector"
+@attribute [ToolPage("HTTP Inspector", "🌐", "Parse curl commands or raw HTTP requests into structured details.", 12)]
+@using DevToolkit.Infrastructure
+@using System.Linq
+@using System.Text
+@using System.Text.Json
+
+<PageTitle>HTTP Inspector</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px;">
+    <FluentLabel Typo="Typography.PageTitle">HTTP Inspector</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
+            <FluentLabel Typo="Typography.Subject">curl Command or Raw HTTP Request</FluentLabel>
+            <FluentTextArea Value="@_requestInput"
+                            ValueChanged="@((string value) => _requestInput = value)"
+                            Rows="12"
+                            Placeholder="Paste a curl command or raw HTTP request message"
+                            Style="width: 100%; font-family: monospace;" />
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="ParseRequest">Inspect</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="UseSampleCurl">Sample curl</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="UseSampleRaw">Sample raw request</FluentButton>
+                <FluentButton Appearance="Appearance.Lightweight" OnClick="ClearInspector">Clear</FluentButton>
+            </FluentStack>
+        </FluentStack>
+    </FluentCard>
+
+    @if (!string.IsNullOrWhiteSpace(_parseMessage))
+    {
+        <FluentMessageBar Intent="@_parseIntent">@_parseMessage</FluentMessageBar>
+    }
+
+    @if (_parsedRequest is not null)
+    {
+        <FluentCard Style="padding: 20px;">
+            <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
+                <FluentLabel Typo="Typography.Subject">Request Summary</FluentLabel>
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 30px; flex-wrap: wrap;">
+                    <FluentStack Orientation="Orientation.Vertical" Style="min-width: 180px;">
+                        <FluentLabel Style="opacity: 0.7;">Method</FluentLabel>
+                        <FluentLabel Typo="Typography.Body">@_parsedRequest.Method</FluentLabel>
+                    </FluentStack>
+                    <FluentStack Orientation="Orientation.Vertical" Style="min-width: 220px;">
+                        <FluentLabel Style="opacity: 0.7;">URL</FluentLabel>
+                        <FluentLabel Typo="Typography.Body">@_parsedRequest.Url</FluentLabel>
+                    </FluentStack>
+                    <FluentStack Orientation="Orientation.Vertical" Style="min-width: 180px;">
+                        <FluentLabel Style="opacity: 0.7;">Host</FluentLabel>
+                        <FluentLabel Typo="Typography.Body">@(_parsedRequest.Host ?? "-")</FluentLabel>
+                    </FluentStack>
+                    <FluentStack Orientation="Orientation.Vertical" Style="min-width: 180px;">
+                        <FluentLabel Style="opacity: 0.7;">HTTP Version</FluentLabel>
+                        <FluentLabel Typo="Typography.Body">@(_parsedRequest.HttpVersion ?? "-")</FluentLabel>
+                    </FluentStack>
+                </FluentStack>
+            </FluentStack>
+        </FluentCard>
+
+        @if (_parsedRequest.QueryParameters.Count > 0)
+        {
+            <FluentCard Style="padding: 20px;">
+                <FluentLabel Typo="Typography.Subject">Query Parameters</FluentLabel>
+                <FluentDataGrid Items="@_parsedRequest.QueryParameters.AsQueryable()" GridTemplateColumns="200px 1fr" Style="margin-top: 10px;">
+                    <PropertyColumn Property="@(entry => entry.Key)" Title="Key" />
+                    <PropertyColumn Property="@(entry => entry.Value)" Title="Value" />
+                </FluentDataGrid>
+            </FluentCard>
+        }
+
+        @if (_parsedRequest.Headers.Count > 0)
+        {
+            <FluentCard Style="padding: 20px;">
+                <FluentLabel Typo="Typography.Subject">Headers</FluentLabel>
+                <FluentDataGrid Items="@_parsedRequest.Headers.AsQueryable()" GridTemplateColumns="220px 1fr" Style="margin-top: 10px;">
+                    <PropertyColumn Property="@(entry => entry.Key)" Title="Header" />
+                    <PropertyColumn Property="@(entry => entry.Value)" Title="Value" />
+                </FluentDataGrid>
+            </FluentCard>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_parsedRequest.DisplayBody))
+        {
+            <FluentCard Style="padding: 20px;">
+                <FluentLabel Typo="Typography.Subject">Body</FluentLabel>
+                <FluentTextArea Value="@_parsedRequest.DisplayBody"
+                                ReadOnly="true"
+                                Rows="@(_parsedRequest.BodyIsJson ? 12 : 8)"
+                                Style="width: 100%; margin-top: 10px; font-family: monospace;" />
+            </FluentCard>
+        }
+
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Code Snippets</FluentLabel>
+            <FluentTabs Style="margin-top: 16px;">
+                <FluentTab Label="HttpClient">
+                    <FluentTextArea Value="@_httpClientSnippet"
+                                    ReadOnly="true"
+                                    Rows="10"
+                                    Style="width: 100%; font-family: monospace;" />
+                </FluentTab>
+                <FluentTab Label="fetch">
+                    <FluentTextArea Value="@_fetchSnippet"
+                                    ReadOnly="true"
+                                    Rows="10"
+                                    Style="width: 100%; font-family: monospace;" />
+                </FluentTab>
+            </FluentTabs>
+        </FluentCard>
+    }
+</FluentStack>
+</div>
+
+@code {
+    private string _requestInput = SampleCurl;
+    private HttpRequestModel? _parsedRequest;
+    private string _parseMessage = string.Empty;
+    private MessageIntent _parseIntent = MessageIntent.Info;
+    private string _httpClientSnippet = string.Empty;
+    private string _fetchSnippet = string.Empty;
+
+    private void ParseRequest()
+    {
+        _parseMessage = string.Empty;
+        _parseIntent = MessageIntent.Info;
+        _parsedRequest = null;
+        _httpClientSnippet = string.Empty;
+        _fetchSnippet = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_requestInput))
+        {
+            _parseMessage = "Provide a curl command or HTTP request to inspect.";
+            return;
+        }
+
+        try
+        {
+            var text = _requestInput.Trim();
+            _parsedRequest = text.StartsWith("curl", StringComparison.OrdinalIgnoreCase)
+                ? ParseCurl(text)
+                : ParseRawHttp(text);
+
+            (_httpClientSnippet, _fetchSnippet) = BuildSnippets(_parsedRequest);
+            _parseMessage = "Request parsed successfully.";
+            _parseIntent = MessageIntent.Success;
+        }
+        catch (Exception ex)
+        {
+            _parsedRequest = null;
+            _parseMessage = $"Unable to parse request: {ex.Message}";
+            _parseIntent = MessageIntent.Error;
+        }
+    }
+
+    private void UseSampleCurl()
+    {
+        _requestInput = SampleCurl;
+    }
+
+    private void UseSampleRaw()
+    {
+        _requestInput = SampleRawRequest;
+    }
+
+    private void ClearInspector()
+    {
+        _requestInput = string.Empty;
+        _parsedRequest = null;
+        _parseMessage = string.Empty;
+        _httpClientSnippet = string.Empty;
+        _fetchSnippet = string.Empty;
+    }
+
+    private static HttpRequestModel ParseRawHttp(string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        if (lines.Length == 0)
+        {
+            throw new InvalidOperationException("Request is empty.");
+        }
+
+        var requestParts = lines[0].Split(' ', 3, StringSplitOptions.RemoveEmptyEntries);
+        if (requestParts.Length < 2)
+        {
+            throw new InvalidOperationException("Invalid HTTP request line.");
+        }
+
+        var method = requestParts[0].ToUpperInvariant();
+        var target = requestParts[1];
+        var version = requestParts.Length >= 3 ? requestParts[2] : null;
+
+        var headers = new List<KeyValuePair<string, string>>();
+        var index = 1;
+        for (; index < lines.Length; index++)
+        {
+            var line = lines[index];
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                index++;
+                break;
+            }
+
+            var separator = line.IndexOf(':');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var name = line[..separator].Trim();
+            var value = line[(separator + 1)..].Trim();
+            headers.Add(new KeyValuePair<string, string>(name, value));
+        }
+
+        var body = index < lines.Length
+            ? string.Join("\n", lines.Skip(index))
+            : string.Empty;
+
+        var hostHeader = headers.FirstOrDefault(h => string.Equals(h.Key, "Host", StringComparison.OrdinalIgnoreCase)).Value;
+        var resolvedUrl = ResolveUrl(target, hostHeader);
+        var queryParameters = ParseQueryParameters(resolvedUrl);
+        var (isJson, formattedBody) = FormatBody(body);
+        var uri = TryCreateUri(resolvedUrl);
+
+        return new HttpRequestModel
+        {
+            Method = method,
+            Url = resolvedUrl,
+            HttpVersion = version,
+            Headers = headers,
+            QueryParameters = queryParameters,
+            Body = string.IsNullOrWhiteSpace(body) ? null : body,
+            DisplayBody = formattedBody ?? (string.IsNullOrWhiteSpace(body) ? null : body),
+            BodyIsJson = isJson,
+            Host = hostHeader ?? uri?.Host,
+            Path = uri?.AbsolutePath ?? target
+        };
+    }
+
+    private static HttpRequestModel ParseCurl(string command)
+    {
+        var tokens = Tokenize(command);
+        if (tokens.Count == 0 || !tokens[0].Equals("curl", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Command must start with curl.");
+        }
+
+        string method = "GET";
+        string? url = null;
+        string body = string.Empty;
+        var headers = new List<KeyValuePair<string, string>>();
+        var queryParameters = new List<KeyValuePair<string, string>>();
+        var methodExplicit = false;
+
+        for (var i = 1; i < tokens.Count; i++)
+        {
+            var token = tokens[i];
+            switch (token)
+            {
+                case "-X":
+                case "--request":
+                    if (i + 1 >= tokens.Count)
+                    {
+                        throw new InvalidOperationException("Missing method after -X/--request.");
+                    }
+                    method = tokens[++i].ToUpperInvariant();
+                    methodExplicit = true;
+                    break;
+                case "-H":
+                case "--header":
+                    if (i + 1 >= tokens.Count)
+                    {
+                        throw new InvalidOperationException("Missing header value after -H/--header.");
+                    }
+                    AddHeader(headers, tokens[++i]);
+                    break;
+                case "--url":
+                    if (i + 1 >= tokens.Count)
+                    {
+                        throw new InvalidOperationException("Missing URL after --url.");
+                    }
+                    url = tokens[++i];
+                    break;
+                case "-d":
+                case "--data":
+                case "--data-raw":
+                case "--data-binary":
+                    if (i + 1 >= tokens.Count)
+                    {
+                        throw new InvalidOperationException("Missing data payload after --data.");
+                    }
+                    body = tokens[++i];
+                    if (!methodExplicit)
+                    {
+                        method = "POST";
+                    }
+                    break;
+                default:
+                    if (!token.StartsWith('-'))
+                    {
+                        url ??= token;
+                    }
+                    break;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            throw new InvalidOperationException("Unable to determine request URL.");
+        }
+
+        queryParameters = ParseQueryParameters(url);
+        var (isJson, formattedBody) = FormatBody(body);
+        var uri = TryCreateUri(url);
+
+        return new HttpRequestModel
+        {
+            Method = method,
+            Url = url,
+            HttpVersion = null,
+            Headers = headers,
+            QueryParameters = queryParameters,
+            Body = string.IsNullOrWhiteSpace(body) ? null : body,
+            DisplayBody = formattedBody ?? (string.IsNullOrWhiteSpace(body) ? null : body),
+            BodyIsJson = isJson,
+            Host = uri?.Host,
+            Path = uri?.AbsolutePath
+        };
+    }
+
+    private static void AddHeader(List<KeyValuePair<string, string>> headers, string rawHeader)
+    {
+        if (string.IsNullOrWhiteSpace(rawHeader))
+        {
+            return;
+        }
+
+        var separator = rawHeader.IndexOf(':');
+        if (separator <= 0)
+        {
+            return;
+        }
+
+        var name = rawHeader[..separator].Trim();
+        var value = rawHeader[(separator + 1)..].Trim();
+        headers.Add(new KeyValuePair<string, string>(name, value));
+    }
+
+    private static List<KeyValuePair<string, string>> ParseQueryParameters(string url)
+    {
+        var parameters = new List<KeyValuePair<string, string>>();
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return parameters;
+        }
+
+        var queryStart = url.IndexOf('?');
+        if (queryStart < 0)
+        {
+            return parameters;
+        }
+
+        var query = url[(queryStart + 1)..];
+        foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var kvp = pair.Split('=', 2);
+            var key = Uri.UnescapeDataString(kvp[0]);
+            var value = kvp.Length > 1 ? Uri.UnescapeDataString(kvp[1]) : string.Empty;
+            parameters.Add(new KeyValuePair<string, string>(key, value));
+        }
+
+        return parameters;
+    }
+
+    private static (bool isJson, string? formatted) FormatBody(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return (false, null);
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            var formatted = JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true });
+            return (true, formatted);
+        }
+        catch
+        {
+            return (false, null);
+        }
+    }
+
+    private static (string httpClient, string fetch) BuildSnippets(HttpRequestModel model)
+    {
+        var httpClientSnippet = BuildHttpClientSnippet(model);
+        var fetchSnippet = BuildFetchSnippet(model);
+        return (httpClientSnippet, fetchSnippet);
+    }
+
+    private static string BuildHttpClientSnippet(HttpRequestModel model)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("using var client = new HttpClient();");
+        sb.AppendLine($"var request = new HttpRequestMessage(new HttpMethod(\"{model.Method}\"), \"{EscapeForCSharp(model.Url)}\");");
+
+        foreach (var header in model.Headers)
+        {
+            sb.AppendLine($"request.Headers.TryAddWithoutValidation(\"{EscapeForCSharp(header.Key)}\", \"{EscapeForCSharp(header.Value)}\");");
+        }
+
+        if (!string.IsNullOrWhiteSpace(model.Body))
+        {
+            var mediaType = model.Headers.FirstOrDefault(h => string.Equals(h.Key, "Content-Type", StringComparison.OrdinalIgnoreCase)).Value;
+            var contentTypePart = string.IsNullOrWhiteSpace(mediaType)
+                ? string.Empty
+                : $", \"{EscapeForCSharp(mediaType)}\"";
+            sb.AppendLine($"request.Content = new StringContent(\"{EscapeForCSharp(model.Body)}\", Encoding.UTF8{contentTypePart});");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("var response = await client.SendAsync(request);");
+        sb.AppendLine("response.EnsureSuccessStatusCode();");
+        sb.AppendLine("var payload = await response.Content.ReadAsStringAsync();");
+
+        return sb.ToString();
+    }
+
+    private static string BuildFetchSnippet(HttpRequestModel model)
+    {
+        var optionLines = new List<string>
+        {
+            $"  method: \"{EscapeForJavaScript(model.Method)}\""
+        };
+
+        if (model.Headers.Count > 0)
+        {
+            var headerLines = model.Headers
+                .Select(header => $"    \"{EscapeForJavaScript(header.Key)}\": \"{EscapeForJavaScript(header.Value)}\"")
+                .ToList();
+
+            var headersBlock = new StringBuilder();
+            headersBlock.AppendLine("  headers: {");
+            headersBlock.AppendLine(string.Join("\n", headerLines));
+            headersBlock.Append("  }");
+            optionLines.Add(headersBlock.ToString());
+        }
+
+        if (!string.IsNullOrWhiteSpace(model.Body))
+        {
+            optionLines.Add($"  body: ` {EscapeForJavaScript(model.Body)} `");
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"const response = await fetch(\"{EscapeForJavaScript(model.Url)}\", {{");
+        sb.AppendLine(string.Join(",\n", optionLines));
+        sb.AppendLine("});");
+        sb.AppendLine("if (!response.ok) throw new Error('Request failed');");
+        sb.AppendLine("const data = await response.json().catch(() => response.text());");
+
+        return sb.ToString();
+    }
+
+    private static string EscapeForCSharp(string value)
+    {
+        return value
+            .Replace("\\", "\\\\")
+            .Replace("\"", "\\\"")
+            .Replace("\r", "\\r")
+            .Replace("\n", "\\n");
+    }
+
+    private static string EscapeForJavaScript(string value)
+    {
+        return value
+            .Replace("\\", "\\\\")
+            .Replace("`", "\\`")
+            .Replace("\"", "\\\"")
+            .Replace("\r", "\\r")
+            .Replace("\n", "\\n");
+    }
+
+    private static string ResolveUrl(string target, string? hostHeader)
+    {
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            return target;
+        }
+
+        if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return target;
+        }
+
+        if (string.IsNullOrWhiteSpace(hostHeader))
+        {
+            return target;
+        }
+
+        var separator = target.StartsWith('/') ? string.Empty : "/";
+        return $"https://{hostHeader}{separator}{target}";
+    }
+
+    private static Uri? TryCreateUri(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var absolute))
+        {
+            return absolute;
+        }
+
+        return null;
+    }
+
+    private static List<string> Tokenize(string command)
+    {
+        var tokens = new List<string>();
+        var current = new StringBuilder();
+        var inSingle = false;
+        var inDouble = false;
+
+        for (var i = 0; i < command.Length; i++)
+        {
+            var c = command[i];
+
+            if (c == '\'' && !inDouble)
+            {
+                inSingle = !inSingle;
+                continue;
+            }
+
+            if (c == '\"' && !inSingle)
+            {
+                inDouble = !inDouble;
+                continue;
+            }
+
+            if (!inSingle && !inDouble && char.IsWhiteSpace(c))
+            {
+                if (current.Length > 0)
+                {
+                    tokens.Add(current.ToString());
+                    current.Clear();
+                }
+                continue;
+            }
+
+            if (c == '\\' && !inSingle && i + 1 < command.Length)
+            {
+                current.Append(command[++i]);
+                continue;
+            }
+
+            current.Append(c);
+        }
+
+        if (current.Length > 0)
+        {
+            tokens.Add(current.ToString());
+        }
+
+        return tokens;
+    }
+
+    private sealed class HttpRequestModel
+    {
+        public string Method { get; set; } = "GET";
+        public string Url { get; set; } = string.Empty;
+        public string? HttpVersion { get; set; }
+        public List<KeyValuePair<string, string>> Headers { get; set; } = new();
+        public List<KeyValuePair<string, string>> QueryParameters { get; set; } = new();
+        public string? Body { get; set; }
+        public string? DisplayBody { get; set; }
+        public bool BodyIsJson { get; set; }
+        public string? Host { get; set; }
+        public string? Path { get; set; }
+    }
+
+        private const string SampleCurl = @"curl -X POST https://api.example.com/users \
+    -H 'Content-Type: application/json' \
+    -H 'Authorization: Bearer demo-token' \
+    --data '{""name"":""Ada"",""role"":""admin""}'";
+
+        private const string SampleRawRequest = @"POST /users HTTP/1.1
+Host: api.example.com
+Content-Type: application/json
+X-Correlation-Id: 123
+
+{
+    ""name"": ""Ada"",
+    ""role"": ""admin""
+}";
+
+}

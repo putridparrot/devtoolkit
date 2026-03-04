@@ -1,30 +1,65 @@
 @page "/cron"
-@attribute [ToolPage("Cron", "⏱️", "Validate cron expressions and preview upcoming run times.", 7)]
+@attribute [ToolPage("Cron", "⏱️", "Validate cron expressions, explore time zones, and preview upcoming run times.", 7)]
 @using DevToolkit.Infrastructure
 @using NCrontab
+@using System.Globalization
+@using System.Linq
 
-<PageTitle>Cron</PageTitle>
+<PageTitle>Cron Playground</PageTitle>
 
 <div class="page-container">
 <FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
-    <FluentLabel Typo="Typography.PageTitle">Cron Expression Helper</FluentLabel>
+    <FluentLabel Typo="Typography.PageTitle">Cron Playground</FluentLabel>
 
     <FluentCard Style="padding: 20px;">
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
             <FluentLabel Typo="Typography.Subject">Cron Expression</FluentLabel>
             <FluentTextField Value="@_cronExpression"
-                             ValueChanged="@((string value) => _cronExpression = value)"
+                             ValueChanged="@((string value) => OnCronChanged(value))"
                              Placeholder="e.g. */5 * * * *"
                              Style="width: 100%;" />
 
-            <FluentLabel Style="font-size: 0.875rem; opacity: 0.8;">Format: minute hour day month day-of-week</FluentLabel>
+            <FluentLabel Style="font-size: 0.875rem; opacity: 0.8;">Format: minute hour day month day-of-week (5 fields)</FluentLabel>
 
-            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px;">
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
                 <FluentButton Appearance="Appearance.Accent" OnClick="EvaluateCron">Evaluate</FluentButton>
                 <FluentButton Appearance="Appearance.Outline" OnClick="SetEveryFiveMinutes">Every 5 minutes</FluentButton>
                 <FluentButton Appearance="Appearance.Outline" OnClick="SetEveryHour">Every hour</FluentButton>
                 <FluentButton Appearance="Appearance.Outline" OnClick="SetDailyMidnight">Daily at midnight</FluentButton>
             </FluentStack>
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
+            <FluentLabel Typo="Typography.Subject">Playground Settings</FluentLabel>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+                <div class="cron-field">
+                    <label>Time zone</label>
+                    <FluentCombobox Items="@_timeZoneOptions"
+                                    SelectedOption="@_selectedTimeZoneId"
+                                    SelectedOptionChanged="@((string? zone) => OnTimeZoneChanged(zone))"
+                                    Style="min-width: 240px;"
+                                    Class="readonly-combo">
+                        <OptionTemplate>@context</OptionTemplate>
+                    </FluentCombobox>
+                </div>
+                <div class="cron-field">
+                    <label>Reference start</label>
+                    <input type="datetime-local" class="cron-input" value="@_referenceInput" @onchange="OnReferenceChanged" />
+                </div>
+                <div class="cron-field">
+                    <label>Occurrences</label>
+                    <FluentNumberField Value="@_occurrenceCount"
+                                       ValueChanged="@((int? value) => OnOccurrenceChanged(value))"
+                                       Min="1"
+                                       Max="50"
+                                       Step="1"
+                                       Style="width: 120px;" />
+                </div>
+                <FluentButton Appearance="Appearance.Stealth" OnClick="SetReferenceNow">Use current time</FluentButton>
+            </FluentStack>
+            <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">Runs are computed relative to the reference instant, then shown in the selected time zone.</FluentLabel>
         </FluentStack>
     </FluentCard>
 
@@ -36,12 +71,61 @@
     @if (_nextRuns.Any())
     {
         <FluentCard Style="padding: 20px;">
-            <FluentLabel Typo="Typography.Subject">Next Runs (Local Time)</FluentLabel>
-            <FluentDataGrid Items="@_nextRuns.AsQueryable()" GridTemplateColumns="80px 2fr 2fr" Style="margin-top: 10px;">
+            <FluentLabel Typo="Typography.Subject">Human Summary</FluentLabel>
+            <p class="cron-summary">@_humanSummary</p>
+            <FluentDivider Style="margin: 12px 0;" />
+            <FluentLabel Typo="Typography.Body">Field breakdown</FluentLabel>
+            <ul class="cron-breakdown-list">
+                @foreach (var field in _fieldBreakdown)
+                {
+                    <li><strong>@field.Field:</strong> <code>@field.Raw</code> - @field.Explanation</li>
+                }
+            </ul>
+        </FluentCard>
+
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Next Runs</FluentLabel>
+            <FluentDataGrid Items="@_nextRuns.AsQueryable()" GridTemplateColumns="70px 2fr 2fr 1fr" Style="margin-top: 12px;">
                 <PropertyColumn Property="@(r => r.Index)" Title="#" />
-                <PropertyColumn Property="@(r => r.LocalTime)" Title="Local" />
+                <PropertyColumn Property="@(r => r.LocalTime)" Title="@($"Local ({_selectedTimeZoneId})")" />
                 <PropertyColumn Property="@(r => r.UtcTime)" Title="UTC" />
+                <PropertyColumn Property="@(r => r.GapToPrevious)" Title="Gap" />
             </FluentDataGrid>
+        </FluentCard>
+
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Cron quick reference</FluentLabel>
+            <div class="cron-reference-grid">
+                <div>
+                    <FluentLabel Typo="Typography.Body">Order</FluentLabel>
+                    <ul>
+                        <li>Minute (0-59)</li>
+                        <li>Hour (0-23)</li>
+                        <li>Day of month (1-31)</li>
+                        <li>Month (1-12)</li>
+                        <li>Day of week (0-6 or SUN-SAT)</li>
+                    </ul>
+                </div>
+                <div>
+                    <FluentLabel Typo="Typography.Body">Special syntax</FluentLabel>
+                    <ul>
+                        <li>* - every value</li>
+                        <li>*/n - every n units</li>
+                        <li>a,b - specific values</li>
+                        <li>a-b - inclusive range</li>
+                        <li>a-b/n - stepped range</li>
+                    </ul>
+                </div>
+                <div>
+                    <FluentLabel Typo="Typography.Body">Popular patterns</FluentLabel>
+                    <ul>
+                        <li>0 */2 * * * - every 2 hours</li>
+                        <li>0 9 * * 1-5 - weekdays at 09:00</li>
+                        <li>30 23 * * * - nightly 23:30</li>
+                        <li>0 0 1 * * - first day of month</li>
+                    </ul>
+                </div>
+            </div>
         </FluentCard>
     }
 </FluentStack>
@@ -51,9 +135,56 @@
     private string _cronExpression = "*/5 * * * *";
     private string _errorMessage = string.Empty;
     private readonly List<CronRun> _nextRuns = new();
+    private readonly List<CronFieldBreakdown> _fieldBreakdown = new();
+    private string _humanSummary = string.Empty;
+    private List<string> _timeZoneOptions = new();
+    private string _selectedTimeZoneId = TimeZoneInfo.Local.Id;
+    private DateTime _referencePoint = DateTime.Now;
+    private int _occurrenceCount = 10;
+    private string _referenceInput => _referencePoint.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
 
     protected override void OnInitialized()
     {
+        _timeZoneOptions = TimeZoneInfo.GetSystemTimeZones()
+            .Select(tz => tz.Id)
+            .ToList();
+        _selectedTimeZoneId = TimeZoneInfo.Local.Id;
+        _referencePoint = DateTime.Now;
+        EvaluateCron();
+    }
+
+    private void OnCronChanged(string value)
+    {
+        _cronExpression = value;
+    }
+
+    private void OnTimeZoneChanged(string? zoneId)
+    {
+        if (!string.IsNullOrEmpty(zoneId))
+        {
+            _selectedTimeZoneId = zoneId;
+            EvaluateCron();
+        }
+    }
+
+    private void OnReferenceChanged(ChangeEventArgs args)
+    {
+        if (args.Value is string raw && DateTime.TryParseExact(raw, "yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+        {
+            _referencePoint = DateTime.SpecifyKind(parsed, DateTimeKind.Unspecified);
+            EvaluateCron();
+        }
+    }
+
+    private void OnOccurrenceChanged(int? value)
+    {
+        _occurrenceCount = Math.Clamp(value ?? 10, 1, 50);
+        EvaluateCron();
+    }
+
+    private void SetReferenceNow()
+    {
+        _referencePoint = DateTime.Now;
         EvaluateCron();
     }
 
@@ -61,30 +192,190 @@
     {
         _errorMessage = string.Empty;
         _nextRuns.Clear();
+        _fieldBreakdown.Clear();
+        _humanSummary = string.Empty;
 
         try
         {
             var schedule = CrontabSchedule.Parse(_cronExpression);
-            var nowUtc = DateTime.UtcNow;
-            var occurrences = schedule.GetNextOccurrences(nowUtc, nowUtc.AddYears(1)).Take(10).ToList();
+            var timeZone = ResolveTimeZone();
 
+            var localReference = DateTime.SpecifyKind(_referencePoint, DateTimeKind.Unspecified);
+            var referenceUtc = TimeZoneInfo.ConvertTimeToUtc(localReference, timeZone);
+            var horizonUtc = referenceUtc.AddYears(1);
+
+            var occurrences = schedule
+                .GetNextOccurrences(referenceUtc, horizonUtc)
+                .Take(_occurrenceCount)
+                .ToList();
+
+            DateTime? previous = null;
             for (var i = 0; i < occurrences.Count; i++)
             {
                 var utc = DateTime.SpecifyKind(occurrences[i], DateTimeKind.Utc);
-                var local = utc.ToLocalTime();
+                var localized = TimeZoneInfo.ConvertTimeFromUtc(utc, timeZone);
+                var localOffset = new DateTimeOffset(localized, timeZone.GetUtcOffset(localized));
 
                 _nextRuns.Add(new CronRun
                 {
                     Index = i + 1,
-                    LocalTime = local.ToString("yyyy-MM-dd HH:mm:ss zzz"),
-                    UtcTime = utc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'")
+                    LocalTime = localOffset.ToString("yyyy-MM-dd HH:mm:ss (zzz)", CultureInfo.InvariantCulture),
+                    UtcTime = utc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture),
+                    GapToPrevious = previous is null ? "-" : FormatGap(utc - previous.Value)
                 });
+
+                previous = utc;
             }
+
+            _humanSummary = BuildHumanSummary(_cronExpression, timeZone);
+            _fieldBreakdown.AddRange(BuildFieldBreakdown(_cronExpression));
         }
         catch (Exception ex)
         {
             _errorMessage = $"Invalid cron expression: {ex.Message}";
         }
+    }
+
+    private TimeZoneInfo ResolveTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(_selectedTimeZoneId);
+        }
+        catch
+        {
+            return TimeZoneInfo.Local;
+        }
+    }
+
+    private static string FormatGap(TimeSpan gap)
+    {
+        if (gap.TotalDays >= 1)
+        {
+            return gap.TotalDays.ToString("0.#", CultureInfo.InvariantCulture) + " d";
+        }
+
+        if (gap.TotalHours >= 1)
+        {
+            return gap.TotalHours.ToString("0.#", CultureInfo.InvariantCulture) + " h";
+        }
+
+        if (gap.TotalMinutes >= 1)
+        {
+            return gap.TotalMinutes.ToString("0.#", CultureInfo.InvariantCulture) + " m";
+        }
+
+        return Math.Max(1, (int)gap.TotalSeconds) + " s";
+    }
+
+    private static string BuildHumanSummary(string expression, TimeZoneInfo zone)
+    {
+        var parts = expression.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 5)
+        {
+            return $"Expression has {parts.Length} fields. Showing schedule in {zone.DisplayName}.";
+        }
+
+        var minute = DescribePart(parts[0], "minute");
+        var hour = DescribePart(parts[1], "hour");
+        var dom = DescribePart(parts[2], "day of month");
+        var month = DescribePart(parts[3], "month");
+        var dow = DescribeDayOfWeek(parts[4]);
+
+        return $"{minute}, {hour}, {dom}, {month}, {dow} in {zone.DisplayName}.";
+    }
+
+    private static IEnumerable<CronFieldBreakdown> BuildFieldBreakdown(string expression)
+    {
+        var parts = expression.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var labels = new[] { "Minute", "Hour", "Day of month", "Month", "Day of week" };
+
+        for (var i = 0; i < labels.Length; i++)
+        {
+            var raw = i < parts.Length ? parts[i] : "(missing)";
+            var explanation = i switch
+            {
+                0 => DescribePart(raw, "minute"),
+                1 => DescribePart(raw, "hour"),
+                2 => DescribePart(raw, "day"),
+                3 => DescribePart(raw, "month"),
+                4 => DescribeDayOfWeek(raw),
+                _ => string.Empty
+            };
+
+            yield return new CronFieldBreakdown(labels[i], raw, explanation);
+        }
+    }
+
+    private static string DescribePart(string token, string unit)
+    {
+        if (token == "*")
+        {
+            return $"Every {unit}";
+        }
+
+        if (token.Contains('/') && token.Split('/').Length == 2 && int.TryParse(token.Split('/')[1], out var step))
+        {
+            return $"Every {step} {unit}(s)";
+        }
+
+        if (token.Contains('-') && !token.Contains('/'))
+        {
+            return $"Range {token.Replace('-', ' ')}";
+        }
+
+        if (token.Contains(','))
+        {
+            return $"Specific {unit}s: {token}";
+        }
+
+        return $"At {token} {unit}(s)";
+    }
+
+    private static string DescribeDayOfWeek(string token)
+    {
+        if (token == "*")
+        {
+            return "Every day of week";
+        }
+
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["0"] = "Sunday",
+            ["1"] = "Monday",
+            ["2"] = "Tuesday",
+            ["3"] = "Wednesday",
+            ["4"] = "Thursday",
+            ["5"] = "Friday",
+            ["6"] = "Saturday",
+            ["SUN"] = "Sunday",
+            ["MON"] = "Monday",
+            ["TUE"] = "Tuesday",
+            ["WED"] = "Wednesday",
+            ["THU"] = "Thursday",
+            ["FRI"] = "Friday",
+            ["SAT"] = "Saturday"
+        };
+
+        if (token.Contains(','))
+        {
+            var parts = token.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => map.TryGetValue(p.Trim(), out var name) ? name : p.Trim());
+            return "Days: " + string.Join(", ", parts);
+        }
+
+        if (token.Contains('-'))
+        {
+            var range = token.Split('-', StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => map.TryGetValue(p.Trim(), out var name) ? name : p.Trim())
+                .ToArray();
+            if (range.Length == 2)
+            {
+                return $"Range {range[0]} to {range[1]}";
+            }
+        }
+
+        return map.TryGetValue(token, out var single) ? $"Only {single}" : $"Day pattern {token}";
     }
 
     private void SetEveryFiveMinutes()
@@ -105,10 +396,13 @@
         EvaluateCron();
     }
 
-    private class CronRun
+    private sealed record CronRun
     {
-        public int Index { get; set; }
-        public string LocalTime { get; set; } = string.Empty;
-        public string UtcTime { get; set; } = string.Empty;
+        public int Index { get; init; }
+        public string LocalTime { get; init; } = string.Empty;
+        public string UtcTime { get; init; } = string.Empty;
+        public string GapToPrevious { get; init; } = string.Empty;
     }
+
+    private sealed record CronFieldBreakdown(string Field, string Raw, string Explanation);
 }

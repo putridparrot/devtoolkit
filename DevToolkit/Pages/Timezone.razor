@@ -1,0 +1,725 @@
+@page "/timezones"
+@attribute [ToolPage("Timezones", "🕓", "Compare time zones, convert moments, and coordinate meetings.", 11)]
+@using DevToolkit.Infrastructure
+@using Microsoft.FluentUI.AspNetCore.Components
+@using System
+@using System.Globalization
+
+<PageTitle>Timezone &amp; Schedule Helper</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px;">
+    <FluentLabel Typo="Typography.PageTitle">Timezone &amp; Schedule Helper</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 16px;">
+            <FluentLabel Typo="Typography.Subject">Reference Moment</FluentLabel>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; flex-wrap: wrap;">
+                <div class="timezone-field">
+                    <label>Local date &amp; time</label>
+                    <input type="datetime-local" class="timezone-datetime-input" value="@ReferenceInputValue" @onchange="OnReferenceInputChanged" />
+                </div>
+                <div class="timezone-field">
+                    <label>Source timezone</label>
+                    <FluentCombobox Items="@_timezones"
+                                    @bind-SelectedOption="ReferenceZone"
+                                    Style="min-width: 260px;"
+                                    Class="readonly-combo">
+                        <OptionTemplate>@(context?.Label ?? string.Empty)</OptionTemplate>
+                    </FluentCombobox>
+                </div>
+            </FluentStack>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="SetReferenceNow">Now</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="() => ShiftReferenceHours(1)">+1 hour</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="() => ShiftReferenceHours(24)">+1 day</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="() => ShiftReferenceHours(-1)">-1 hour</FluentButton>
+            </FluentStack>
+            <FluentLabel Style="opacity: 0.8;">@ReferenceSummary</FluentLabel>
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 16px;">
+            <FluentLabel Typo="Typography.Subject">Tracked Timezones</FluentLabel>
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+                <div class="timezone-field">
+                    <label>Add timezone</label>
+                    <FluentCombobox Items="@_timezones"
+                                    @bind-SelectedOption="_zoneToAdd"
+                                    Style="min-width: 260px;"
+                                    Class="readonly-combo">
+                        <OptionTemplate>@(context?.Label ?? string.Empty)</OptionTemplate>
+                    </FluentCombobox>
+                </div>
+                <FluentButton Appearance="Appearance.Accent" OnClick="AddTrackedZone">Add to list</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="ClearTrackedZones">Reset to defaults</FluentButton>
+            </FluentStack>
+
+            @if (!string.IsNullOrWhiteSpace(_timezoneMessage))
+            {
+                <FluentMessageBar Intent="@_timezoneMessageIntent">@_timezoneMessage</FluentMessageBar>
+            }
+
+            @if (_timeSnapshots.Count == 0)
+            {
+                <FluentLabel Style="opacity: 0.8;">Add at least one timezone to see conversions.</FluentLabel>
+            }
+            else
+            {
+                <div class="timezone-table">
+                    @foreach (var snapshot in _timeSnapshots)
+                    {
+                        <div class="timezone-row">
+                            <div class="timezone-row-main">
+                                <strong>@snapshot.DisplayName</strong>
+                                <span>@snapshot.DayNote</span>
+                            </div>
+                            <div class="timezone-row-time">
+                                <span class="timezone-time">@snapshot.LocalText</span>
+                                <span class="timezone-offset">@snapshot.OffsetText</span>
+                            </div>
+                            <div class="timezone-row-delta">@snapshot.DeltaText</div>
+                            <div>
+                                @if (!snapshot.IsReference)
+                                {
+                                    <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => RemoveTrackedZone(snapshot.ZoneId)">
+                                        <FluentIcon Icon="Icons.Regular.Size20.Dismiss" />
+                                    </FluentButton>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </FluentStack>
+    </FluentCard>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 16px;">
+            <FluentLabel Typo="Typography.Subject">Schedule Planner</FluentLabel>
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; flex-wrap: wrap;">
+                <div class="timezone-field">
+                    <label>Meeting anchor</label>
+                    <input type="datetime-local" class="timezone-datetime-input" value="@MeetingInputValue" @onchange="OnMeetingInputChanged" />
+                </div>
+                <div class="timezone-field">
+                    <label>Anchor timezone</label>
+                    <FluentCombobox Items="@_timezones"
+                                    @bind-SelectedOption="MeetingZone"
+                                    Style="min-width: 260px;"
+                                    Class="readonly-combo">
+                        <OptionTemplate>@(context?.Label ?? string.Empty)</OptionTemplate>
+                    </FluentCombobox>
+                </div>
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 8px; flex-wrap: wrap;">
+                    <FluentButton Appearance="Appearance.Accent" OnClick="SetMeetingNow">Use now</FluentButton>
+                    <FluentButton Appearance="Appearance.Outline" OnClick="() => ShiftMeetingHours(1)">+1 hour</FluentButton>
+                    <FluentButton Appearance="Appearance.Outline" OnClick="() => ShiftMeetingHours(-1)">-1 hour</FluentButton>
+                </FluentStack>
+            </FluentStack>
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 16px; flex-wrap: wrap; align-items: center;">
+                <FluentLabel>Working hours (local)</FluentLabel>
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 8px; align-items: center;">
+                    <FluentLabel>Start</FluentLabel>
+                    <FluentNumberField Value="@_workdayStart"
+                                       ValueChanged="@((int? value) => UpdateWorkdayStart(value ?? 9))"
+                                       Min="0" Max="23" Step="1" Style="width: 80px;" />
+                    <FluentLabel>End</FluentLabel>
+                    <FluentNumberField Value="@_workdayEnd"
+                                       ValueChanged="@((int? value) => UpdateWorkdayEnd(value ?? 17))"
+                                       Min="1" Max="24" Step="1" Style="width: 80px;" />
+                </FluentStack>
+            </FluentStack>
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; flex-wrap: wrap; align-items: flex-end;">
+                <div class="timezone-field">
+                    <label>Participant name</label>
+                    <FluentTextField Value="@_newParticipantName"
+                                     ValueChanged="@((string value) => _newParticipantName = value)"
+                                     Placeholder="Teammate" Style="min-width: 200px;" />
+                </div>
+                <div class="timezone-field">
+                    <label>Participant timezone</label>
+                    <FluentCombobox Items="@_timezones"
+                                    @bind-SelectedOption="_participantZone"
+                                    Style="min-width: 260px;"
+                                    Class="readonly-combo">
+                        <OptionTemplate>@(context?.Label ?? string.Empty)</OptionTemplate>
+                    </FluentCombobox>
+                </div>
+                <FluentButton Appearance="Appearance.Accent" OnClick="AddParticipant">Add participant</FluentButton>
+            </FluentStack>
+
+            @if (!string.IsNullOrWhiteSpace(_plannerMessage))
+            {
+                <FluentMessageBar Intent="@_plannerMessageIntent">@_plannerMessage</FluentMessageBar>
+            }
+
+            @if (_participantViews.Count == 0)
+            {
+                <FluentLabel Style="opacity: 0.8;">Add participants to evaluate a meeting time.</FluentLabel>
+            }
+            else
+            {
+                <div class="participant-table">
+                    @foreach (var participant in _participantViews)
+                    {
+                        <div class="participant-row">
+                            <div class="participant-main">
+                                <strong>@participant.Name</strong>
+                                <span>@participant.ZoneLabel</span>
+                            </div>
+                            <div class="participant-time">
+                                <span>@participant.LocalMeetingText</span>
+                                <span class="participant-day">@participant.DayNote</span>
+                            </div>
+                            <span class="participant-status @(participant.WithinHours ? "status-pass" : "status-warn")">@participant.StatusText</span>
+                            <div>
+                                <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => RemoveParticipant(participant.Id)">
+                                    <FluentIcon Icon="Icons.Regular.Size20.Dismiss" />
+                                </FluentButton>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            <FluentLabel Typo="Typography.Body">Suggested overlapping slots</FluentLabel>
+            @if (_suggestedSlots.Count == 0)
+            {
+                <FluentMessageBar Intent="MessageIntent.Warning">No overlapping working-hour window within the next 72 hours based on current settings.</FluentMessageBar>
+            }
+            else
+            {
+                <div class="slot-grid">
+                    @foreach (var slot in _suggestedSlots)
+                    {
+                        <div class="slot-card">
+                            <div class="slot-head">@slot.AnchorDescription</div>
+                            <ul>
+                                @foreach (var detail in slot.Participants)
+                                {
+                                    <li><strong>@detail.Name:</strong> @detail.LocalText <span class="slot-day">@detail.DayNote</span></li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                </div>
+            }
+        </FluentStack>
+    </FluentCard>
+</FluentStack>
+</div>
+
+@code {
+    private readonly List<string> _trackedZoneIds = new();
+    private readonly List<MeetingParticipant> _participants = new();
+    private readonly List<TimeZoneOption> _timezones = new();
+
+    private TimeZoneOption? _referenceZone;
+    private TimeZoneOption? _meetingZone;
+    private TimeZoneOption? _zoneToAdd;
+    private TimeZoneOption? _participantZone;
+
+    private DateTime _referenceLocalTime = DateTime.Now;
+    private DateTime _meetingLocalTime = DateTime.Now.AddHours(1);
+
+    private int _workdayStart = 9;
+    private int _workdayEnd = 17;
+
+    private string? _timezoneMessage;
+    private MessageIntent _timezoneMessageIntent = MessageIntent.Info;
+    private string? _plannerMessage;
+    private MessageIntent _plannerMessageIntent = MessageIntent.Info;
+    private string _newParticipantName = string.Empty;
+
+    private List<ZoneSnapshot> _timeSnapshots = new();
+    private List<ParticipantView> _participantViews = new();
+    private List<SuggestedSlot> _suggestedSlots = new();
+
+    protected override void OnInitialized()
+    {
+        var zones = TimeZoneInfo.GetSystemTimeZones();
+        foreach (var zone in zones)
+        {
+            _timezones.Add(new TimeZoneOption(zone.Id, $"{zone.DisplayName} [{zone.Id}]"));
+        }
+
+        _referenceZone = FindZoneOption(TimeZoneInfo.Local.Id) ?? _timezones.FirstOrDefault();
+        _meetingZone = _referenceZone;
+        _zoneToAdd = _timezones.FirstOrDefault(z => string.Equals(z.Id, TimeZoneInfo.Utc.Id, StringComparison.OrdinalIgnoreCase));
+        _participantZone = _referenceZone;
+
+        ResetTrackedDefaults();
+
+        _participants.Add(new MeetingParticipant(global::System.Guid.NewGuid().ToString("N"), "You", _referenceZone?.Id ?? TimeZoneInfo.Local.Id));
+
+        RefreshSnapshots();
+        RefreshParticipants();
+        RefreshSuggestions();
+    }
+
+    private void OnReferenceInputChanged(ChangeEventArgs args)
+    {
+        if (TryParseInput(args.Value, out var value))
+        {
+            _referenceLocalTime = value;
+            RefreshSnapshots();
+            StateHasChanged();
+        }
+    }
+
+    private void OnMeetingInputChanged(ChangeEventArgs args)
+    {
+        if (TryParseInput(args.Value, out var value))
+        {
+            _meetingLocalTime = value;
+            RefreshParticipants();
+            RefreshSuggestions();
+            StateHasChanged();
+        }
+    }
+
+    private static bool TryParseInput(object? value, out DateTime result)
+    {
+        var text = value?.ToString();
+        if (!string.IsNullOrWhiteSpace(text) && DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var parsed))
+        {
+            result = DateTime.SpecifyKind(parsed, DateTimeKind.Unspecified);
+            return true;
+        }
+
+        result = DateTime.Now;
+        return false;
+    }
+
+    private string ReferenceInputValue => _referenceLocalTime.ToString("yyyy-MM-ddTHH:mm");
+    private string MeetingInputValue => _meetingLocalTime.ToString("yyyy-MM-ddTHH:mm");
+
+    private string ReferenceSummary
+    {
+        get
+        {
+            var zone = ResolveZone(_referenceZone?.Id) ?? TimeZoneInfo.Local;
+            var instant = CreateInstant(_referenceLocalTime, zone);
+            var offset = zone.GetUtcOffset(instant.UtcDateTime);
+            var offsetText = FormatOffset(offset);
+            return $"{instant.ToString("ddd, MMM d yyyy HH:mm", CultureInfo.InvariantCulture)} ({zone.Id}, {offsetText})";
+        }
+    }
+    
+    private TimeZoneOption? ReferenceZone
+    {
+        get => _referenceZone;
+        set
+        {
+            if ((_referenceZone is null && value is null) ||
+                (_referenceZone is not null && value is not null && string.Equals(_referenceZone.Id, value.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            _referenceZone = value;
+            RefreshSnapshots();
+        }
+    }
+
+    private TimeZoneOption? MeetingZone
+    {
+        get => _meetingZone;
+        set
+        {
+            if ((_meetingZone is null && value is null) ||
+                (_meetingZone is not null && value is not null && string.Equals(_meetingZone.Id, value.Id, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            _meetingZone = value;
+            RefreshParticipants();
+            RefreshSuggestions();
+        }
+    }
+
+    private void SetReferenceNow()
+    {
+        _referenceLocalTime = DateTime.Now;
+        RefreshSnapshots();
+    }
+
+    private void ShiftReferenceHours(int hours)
+    {
+        _referenceLocalTime = _referenceLocalTime.AddHours(hours);
+        RefreshSnapshots();
+    }
+
+    private void SetMeetingNow()
+    {
+        _meetingLocalTime = DateTime.Now;
+        RefreshParticipants();
+        RefreshSuggestions();
+    }
+
+    private void ShiftMeetingHours(int hours)
+    {
+        _meetingLocalTime = _meetingLocalTime.AddHours(hours);
+        RefreshParticipants();
+        RefreshSuggestions();
+    }
+
+    private void UpdateWorkdayStart(int value)
+    {
+        _workdayStart = Math.Clamp(value, 0, Math.Min(_workdayEnd - 1, 23));
+        RefreshParticipants();
+        RefreshSuggestions();
+    }
+
+    private void UpdateWorkdayEnd(int value)
+    {
+        _workdayEnd = Math.Clamp(value, Math.Max(_workdayStart + 1, 1), 24);
+        RefreshParticipants();
+        RefreshSuggestions();
+    }
+
+    private void AddTrackedZone()
+    {
+        if (_zoneToAdd is null)
+        {
+            SetTimezoneMessage("Select a timezone to add.", MessageIntent.Warning);
+            return;
+        }
+
+        if (TrackedContains(_zoneToAdd.Id))
+        {
+            SetTimezoneMessage("That timezone is already in the list.", MessageIntent.Warning);
+            return;
+        }
+
+        _trackedZoneIds.Add(_zoneToAdd.Id);
+        SetTimezoneMessage($"Added {_zoneToAdd.Id}.", MessageIntent.Success);
+        RefreshSnapshots();
+    }
+
+    private void RemoveTrackedZone(string zoneId)
+    {
+        _trackedZoneIds.RemoveAll(z => string.Equals(z, zoneId, StringComparison.OrdinalIgnoreCase));
+        RefreshSnapshots();
+    }
+
+    private void ClearTrackedZones()
+    {
+        ResetTrackedDefaults();
+        SetTimezoneMessage("Reset to local + UTC + suggestions.", MessageIntent.Info);
+        RefreshSnapshots();
+    }
+
+    private void ResetTrackedDefaults()
+    {
+        _trackedZoneIds.Clear();
+        var referenceId = _referenceZone?.Id ?? TimeZoneInfo.Local.Id;
+        _trackedZoneIds.Add(referenceId);
+        if (!TrackedContains(TimeZoneInfo.Utc.Id))
+        {
+            _trackedZoneIds.Add(TimeZoneInfo.Utc.Id);
+        }
+
+        foreach (var hint in new[] { "Eastern", "London", "Berlin", "Tokyo", "Sydney" })
+        {
+            var match = _timezones.FirstOrDefault(z => z.Label.Contains(hint, StringComparison.OrdinalIgnoreCase));
+            if (match is not null && !TrackedContains(match.Id))
+            {
+                _trackedZoneIds.Add(match.Id);
+            }
+        }
+    }
+
+    private bool TrackedContains(string id)
+    {
+        return _trackedZoneIds.Any(z => string.Equals(z, id, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void SetTimezoneMessage(string message, MessageIntent intent)
+    {
+        _timezoneMessage = message;
+        _timezoneMessageIntent = intent;
+    }
+
+    private void AddParticipant()
+    {
+        if (string.IsNullOrWhiteSpace(_newParticipantName))
+        {
+            SetPlannerMessage("Enter a participant name.", MessageIntent.Warning);
+            return;
+        }
+
+        if (_participantZone is null)
+        {
+            SetPlannerMessage("Select a participant timezone.", MessageIntent.Warning);
+            return;
+        }
+
+        _participants.Add(new MeetingParticipant(global::System.Guid.NewGuid().ToString("N"), _newParticipantName.Trim(), _participantZone.Id));
+        _newParticipantName = string.Empty;
+        SetPlannerMessage($"Added participant for {_participantZone.Id}.", MessageIntent.Success);
+        RefreshParticipants();
+        RefreshSuggestions();
+    }
+
+    private void RemoveParticipant(string id)
+    {
+        _participants.RemoveAll(p => p.Id == id);
+        RefreshParticipants();
+        RefreshSuggestions();
+    }
+
+    private void SetPlannerMessage(string message, MessageIntent intent)
+    {
+        _plannerMessage = message;
+        _plannerMessageIntent = intent;
+    }
+
+    private void RefreshSnapshots()
+    {
+        _timeSnapshots = _trackedZoneIds
+            .Select(id => BuildSnapshot(id))
+            .Where(snapshot => snapshot is not null)
+            .Select(snapshot => snapshot!)
+            .OrderBy(s => s.SortKey)
+            .ToList();
+    }
+
+    private void RefreshParticipants()
+    {
+        _participantViews = _participants
+            .Select(p => BuildParticipantView(p))
+            .Where(view => view is not null)
+            .Select(view => view!)
+            .ToList();
+    }
+
+    private void RefreshSuggestions()
+    {
+        _suggestedSlots = FindSuggestedSlots();
+    }
+
+    private ZoneSnapshot? BuildSnapshot(string zoneId)
+    {
+        var zone = ResolveZone(zoneId);
+        if (zone is null)
+        {
+            return null;
+        }
+
+        var referenceZone = ResolveZone(_referenceZone?.Id) ?? TimeZoneInfo.Local;
+        var instant = CreateInstant(_referenceLocalTime, referenceZone);
+        var localTime = TimeZoneInfo.ConvertTime(instant, zone);
+        var deltaHours = (localTime - instant).TotalHours;
+
+        return new ZoneSnapshot(
+            zone.Id,
+            zone.DisplayName,
+            localTime.ToString("ddd, MMM d • HH:mm", CultureInfo.InvariantCulture),
+            FormatOffset(zone.GetUtcOffset(localTime.UtcDateTime)),
+            DescribeDelta(deltaHours),
+            DescribeDayDifference(localTime, instant),
+            string.Equals(zone.Id, referenceZone.Id, StringComparison.OrdinalIgnoreCase),
+            deltaHours);
+    }
+
+    private ParticipantView? BuildParticipantView(MeetingParticipant participant)
+    {
+        var zone = ResolveZone(participant.TimeZoneId);
+        if (zone is null)
+        {
+            return null;
+        }
+
+        var anchorZone = ResolveZone(_meetingZone?.Id) ?? TimeZoneInfo.Local;
+        var anchorInstant = CreateInstant(_meetingLocalTime, anchorZone);
+        var local = TimeZoneInfo.ConvertTime(anchorInstant, zone);
+        var withinHours = IsWithinWorkingHours(local.TimeOfDay);
+        var status = withinHours ? "Within working hours" : "Outside working hours";
+
+        return new ParticipantView(
+            participant.Id,
+            participant.Name,
+            zone.DisplayName,
+            local.ToString("ddd, MMM d • HH:mm", CultureInfo.InvariantCulture),
+            DescribeDayDifference(local, anchorInstant),
+            withinHours,
+            status);
+    }
+
+    private List<SuggestedSlot> FindSuggestedSlots()
+    {
+        var results = new List<SuggestedSlot>();
+        if (_participants.Count == 0)
+        {
+            return results;
+        }
+
+        var anchorZone = ResolveZone(_meetingZone?.Id) ?? TimeZoneInfo.Local;
+        var anchorInstant = CreateInstant(_meetingLocalTime, anchorZone);
+        var candidate = anchorInstant;
+        var iterations = 0;
+
+        while (results.Count < 5 && iterations < 72)
+        {
+            if (AllParticipantsWithinHours(candidate))
+            {
+                var details = _participants
+                    .Select(p => BuildSlotParticipant(candidate, p))
+                    .Where(d => d is not null)
+                    .Select(d => d!)
+                    .ToList();
+
+                if (details.Count == _participants.Count)
+                {
+                    var anchorText = TimeZoneInfo.ConvertTime(candidate, anchorZone)
+                        .ToString("ddd, MMM d • HH:mm", CultureInfo.InvariantCulture);
+                    results.Add(new SuggestedSlot($"{anchorText} ({anchorZone.Id})", details));
+                }
+            }
+
+            candidate = candidate.AddHours(1);
+            iterations++;
+        }
+
+        return results;
+    }
+
+    private bool AllParticipantsWithinHours(DateTimeOffset instant)
+    {
+        foreach (var participant in _participants)
+        {
+            var zone = ResolveZone(participant.TimeZoneId);
+            if (zone is null)
+            {
+                return false;
+            }
+
+            var local = TimeZoneInfo.ConvertTime(instant, zone);
+            if (!IsWithinWorkingHours(local.TimeOfDay))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private SlotParticipant? BuildSlotParticipant(DateTimeOffset instant, MeetingParticipant participant)
+    {
+        var zone = ResolveZone(participant.TimeZoneId);
+        if (zone is null)
+        {
+            return null;
+        }
+
+        var local = TimeZoneInfo.ConvertTime(instant, zone);
+        return new SlotParticipant(
+            participant.Name,
+            local.ToString("ddd, MMM d • HH:mm", CultureInfo.InvariantCulture),
+            DescribeDayDifference(local, instant));
+    }
+
+    private static string DescribeDelta(double hours)
+    {
+        if (Math.Abs(hours) < 0.01)
+        {
+            return "Same as reference";
+        }
+
+        var sign = hours > 0 ? "ahead" : "behind";
+        return $"{Math.Abs(hours):0.#}h {sign}";
+    }
+
+    private static string DescribeDayDifference(DateTimeOffset local, DateTimeOffset anchor)
+    {
+        var delta = (local.Date - anchor.Date).Days;
+        var plural = Math.Abs(delta) == 1 ? string.Empty : "s";
+        return delta switch
+        {
+            0 => "Today",
+            1 => "Tomorrow",
+            -1 => "Yesterday",
+            _ => delta > 0 ? $"+{delta} day{plural}" : $"{delta} day{plural}"
+        };
+    }
+
+    private static string FormatOffset(TimeSpan offset)
+    {
+        var sign = offset < TimeSpan.Zero ? "-" : "+";
+        offset = offset.Duration();
+        return $"UTC{sign}{offset.Hours:00}:{offset.Minutes:00}";
+    }
+
+    private bool IsWithinWorkingHours(TimeSpan time)
+    {
+        var hourFraction = time.TotalHours;
+        return hourFraction >= _workdayStart && hourFraction < _workdayEnd;
+    }
+
+    private TimeZoneInfo? ResolveZone(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(id);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private TimeZoneOption? FindZoneOption(string id)
+    {
+        return _timezones.FirstOrDefault(z => string.Equals(z.Id, id, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static DateTimeOffset CreateInstant(DateTime localTime, TimeZoneInfo zone)
+    {
+        var unspecified = DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified);
+        var offset = zone.GetUtcOffset(unspecified);
+        return new DateTimeOffset(unspecified, offset);
+    }
+
+    private sealed record TimeZoneOption(string Id, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    private sealed record MeetingParticipant(string Id, string Name, string TimeZoneId);
+
+    private sealed record ZoneSnapshot(
+        string ZoneId,
+        string DisplayName,
+        string LocalText,
+        string OffsetText,
+        string DeltaText,
+        string DayNote,
+        bool IsReference,
+        double SortKey);
+
+    private sealed record ParticipantView(
+        string Id,
+        string Name,
+        string ZoneLabel,
+        string LocalMeetingText,
+        string DayNote,
+        bool WithinHours,
+        string StatusText);
+
+    private sealed record SuggestedSlot(string AnchorDescription, List<SlotParticipant> Participants);
+
+    private sealed record SlotParticipant(string Name, string LocalText, string DayNote);
+}

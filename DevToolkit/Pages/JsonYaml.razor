@@ -1,0 +1,374 @@
+@page "/json-yaml"
+@attribute [ToolPage("JSON/YAML", "🔁", "Convert JSON and YAML plus validate JSON against a schema.", 13)]
+@using DevToolkit.Infrastructure
+@using DevToolkit.Services
+@using System.Collections
+@using System.Globalization
+@using System.Linq
+@using System.Threading
+@using System.Text.Json
+@using NJsonSchema
+@using YamlDotNet.Serialization
+@inject ISettingsService SettingsService
+@implements IDisposable
+
+<PageTitle>JSON &amp; YAML</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px;">
+    <FluentLabel Typo="Typography.PageTitle">JSON &amp; YAML Utilities</FluentLabel>
+    
+    <FluentCard Style="padding: 20px;">
+
+    <FluentTabs Style="width: 100%;">
+        <FluentTab Label="Convert">
+            <FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; padding: 20px; width: 100%;">
+                <div class="convert-grid">
+                    <FluentCard Class="convert-card" Style="padding: 16px; width: 100%;">
+                        <FluentLabel Typo="Typography.Subject">JSON</FluentLabel>
+                        <FluentTextArea Value="@_jsonInput"
+                                        ValueChanged="OnJsonInputChanged"
+                                        Rows="14"
+                                        Style="width: 100%; margin-top: 10px; font-family: monospace;" />
+                    </FluentCard>
+
+                    <FluentCard Class="convert-card" Style="padding: 16px; width: 100%;">
+                        <FluentLabel Typo="Typography.Subject">YAML</FluentLabel>
+                        <FluentTextArea Value="@_yamlInput"
+                                        ValueChanged="OnYamlInputChanged"
+                                        Rows="14"
+                                        Style="width: 100%; margin-top: 10px; font-family: monospace;" />
+                    </FluentCard>
+                </div>
+
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
+                    <FluentButton Appearance="Appearance.Accent" OnClick="ConvertJsonToYaml">JSON to YAML</FluentButton>
+                    <FluentButton Appearance="Appearance.Accent" OnClick="ConvertYamlToJson">YAML to JSON</FluentButton>
+                    <FluentButton Appearance="Appearance.Lightweight" OnClick="ClearConvertFields">Clear</FluentButton>
+                </FluentStack>
+
+                @if (!string.IsNullOrWhiteSpace(_convertMessage))
+                {
+                    <FluentMessageBar Intent="@_convertIntent">@_convertMessage</FluentMessageBar>
+                }
+            </FluentStack>
+        </FluentTab>
+
+        <FluentTab Label="Schema Validation">
+            <FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; padding: 20px; width: 100%;">
+                <div class="schema-grid">
+                    <FluentCard Class="schema-card" Style="padding: 16px; width: 100%;">
+                        <FluentLabel Typo="Typography.Subject">JSON Schema</FluentLabel>
+                        <FluentTextArea Value="@_schemaInput"
+                                        ValueChanged="OnSchemaInputChanged"
+                                        Rows="12"
+                                        Style="width: 100%; margin-top: 10px; font-family: monospace;" />
+                    </FluentCard>
+
+                    <FluentCard Class="schema-card" Style="padding: 16px; width: 100%;">
+                        <FluentLabel Typo="Typography.Subject">JSON Data</FluentLabel>
+                        <FluentTextArea Value="@_schemaDataInput"
+                                        ValueChanged="OnSchemaDataInputChanged"
+                                        Rows="12"
+                                        Style="width: 100%; margin-top: 10px; font-family: monospace;" />
+                    </FluentCard>
+                </div>
+
+                <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
+                    <FluentButton Appearance="Appearance.Accent" OnClick="ValidateSchemaAsync">Validate</FluentButton>
+                    <FluentButton Appearance="Appearance.Lightweight" OnClick="ResetSchemaFields">Reset</FluentButton>
+                </FluentStack>
+
+                @if (!string.IsNullOrWhiteSpace(_schemaMessage))
+                {
+                    <FluentMessageBar Intent="@_schemaIntent">@_schemaMessage</FluentMessageBar>
+                }
+
+                @if (_schemaIssues.Count > 0)
+                {
+                    <FluentCard Style="padding: 16px;">
+                        <FluentLabel Typo="Typography.Subject">Validation Issues</FluentLabel>
+                        <FluentDataGrid Items="@_schemaIssues.AsQueryable()" GridTemplateColumns="200px 1fr" Style="margin-top: 10px;">
+                            <PropertyColumn Property="@(issue => issue.Path)" Title="Path" />
+                            <PropertyColumn Property="@(issue => issue.Message)" Title="Message" />
+                        </FluentDataGrid>
+                    </FluentCard>
+                }
+            </FluentStack>
+        </FluentTab>
+    </FluentTabs>
+    </FluentCard>
+</FluentStack>
+</div>
+
+@code {
+    private readonly ISerializer _yamlSerializer = new SerializerBuilder()
+        .WithIndentedSequences()
+        .Build();
+    private readonly IDeserializer _yamlDeserializer = new DeserializerBuilder().Build();
+
+    private string _jsonInput = "{\n  \"name\": \"Ada\",\n  \"skills\": [\"http\", \"yaml\"],\n  \"active\": true\n}";
+    private string _yamlInput = "name: Ada\nskills:\n  - http\n  - yaml\nactive: true";
+    private string _convertMessage = string.Empty;
+    private MessageIntent _convertIntent = MessageIntent.Info;
+
+        private const string DefaultSchema = @"{
+    ""$schema"": ""https://json-schema.org/draft/2020-12/schema"",
+    ""type"": ""object"",
+    ""properties"": {
+        ""name"": { ""type"": ""string"" },
+        ""age"": { ""type"": ""integer"", ""minimum"": 0 }
+    },
+    ""required"": [""name""]
+}";
+
+        private const string DefaultSchemaData = @"{
+    ""name"": ""Ada"",
+    ""age"": 32
+}";
+
+        private string _schemaInput = DefaultSchema;
+        private string _schemaDataInput = DefaultSchemaData;
+
+    private string _schemaMessage = string.Empty;
+    private MessageIntent _schemaIntent = MessageIntent.Info;
+    private readonly List<SchemaValidationIssue> _schemaIssues = new();
+
+    private AppSettings? _settings;
+    private bool _settingsLoaded;
+    private readonly TimeSpan _autosaveDelay = TimeSpan.FromMilliseconds(600);
+    private CancellationTokenSource? _autosaveCts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await SettingsService.LoadSettingsAsync();
+        var stored = _settings.JsonYaml ??= new JsonYamlSettings();
+        _jsonInput = stored.ConvertJsonInput ?? _jsonInput;
+        _yamlInput = stored.ConvertYamlInput ?? _yamlInput;
+        _schemaInput = stored.SchemaInput ?? DefaultSchema;
+        _schemaDataInput = stored.SchemaDataInput ?? DefaultSchemaData;
+        _settingsLoaded = true;
+    }
+
+    private async Task ConvertJsonToYaml()
+    {
+        _convertMessage = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_jsonInput))
+        {
+            _convertIntent = MessageIntent.Info;
+            _convertMessage = "Provide JSON to convert.";
+            return;
+        }
+
+        try
+        {
+            var element = JsonSerializer.Deserialize<JsonElement>(_jsonInput);
+            var normalized = ConvertJsonElement(element);
+            _yamlInput = _yamlSerializer.Serialize(normalized).TrimEnd();
+            _convertIntent = MessageIntent.Success;
+            _convertMessage = "Converted JSON to YAML.";
+            await PersistAsync();
+        }
+        catch (Exception ex)
+        {
+            _convertIntent = MessageIntent.Error;
+            _convertMessage = $"JSON conversion failed: {ex.Message}";
+        }
+    }
+
+    private async Task ConvertYamlToJson()
+    {
+        _convertMessage = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_yamlInput))
+        {
+            _convertIntent = MessageIntent.Info;
+            _convertMessage = "Provide YAML to convert.";
+            return;
+        }
+
+        try
+        {
+            var yamlObject = _yamlDeserializer.Deserialize<object?>(_yamlInput);
+            var normalized = NormalizeYamlObject(yamlObject);
+            _jsonInput = JsonSerializer.Serialize(normalized, new JsonSerializerOptions { WriteIndented = true });
+            _convertIntent = MessageIntent.Success;
+            _convertMessage = "Converted YAML to JSON.";
+            await PersistAsync();
+        }
+        catch (Exception ex)
+        {
+            _convertIntent = MessageIntent.Error;
+            _convertMessage = $"YAML conversion failed: {ex.Message}";
+        }
+    }
+
+    private async Task ClearConvertFields()
+    {
+        _jsonInput = string.Empty;
+        _yamlInput = string.Empty;
+        _convertMessage = string.Empty;
+        await PersistAsync();
+    }
+
+    private async Task ValidateSchemaAsync()
+    {
+        _schemaIssues.Clear();
+        _schemaMessage = string.Empty;
+
+        try
+        {
+            var schema = await JsonSchema.FromJsonAsync(_schemaInput);
+            var errors = schema.Validate(_schemaDataInput);
+
+            if (errors.Count == 0)
+            {
+                _schemaIntent = MessageIntent.Success;
+                _schemaMessage = "JSON satisfies the schema.";
+            }
+            else
+            {
+                _schemaIntent = MessageIntent.Error;
+                _schemaMessage = $"Found {errors.Count} validation issue(s).";
+
+                foreach (var error in errors)
+                {
+                    var path = string.IsNullOrWhiteSpace(error.Path) ? "$" : error.Path!;
+                    var description = string.IsNullOrWhiteSpace(error.ToString()) ? error.Kind.ToString() : error.ToString();
+                    _schemaIssues.Add(new SchemaValidationIssue(path, description));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _schemaIntent = MessageIntent.Error;
+            _schemaMessage = $"Validation failed: {ex.Message}";
+        }
+    }
+
+    private async Task ResetSchemaFields()
+    {
+                _schemaInput = DefaultSchema;
+                _schemaDataInput = DefaultSchemaData;
+        _schemaMessage = string.Empty;
+        _schemaIssues.Clear();
+        await PersistAsync();
+    }
+
+    private void OnJsonInputChanged(string value)
+    {
+        _jsonInput = value;
+        ScheduleAutoSave();
+    }
+
+    private void OnYamlInputChanged(string value)
+    {
+        _yamlInput = value;
+        ScheduleAutoSave();
+    }
+
+    private void OnSchemaInputChanged(string value)
+    {
+        _schemaInput = value;
+        ScheduleAutoSave();
+    }
+
+    private void OnSchemaDataInputChanged(string value)
+    {
+        _schemaDataInput = value;
+        ScheduleAutoSave();
+    }
+
+    private void ScheduleAutoSave()
+    {
+        if (!_settingsLoaded)
+        {
+            return;
+        }
+
+        _autosaveCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _autosaveCts = cts;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(_autosaveDelay, cts.Token);
+                await InvokeAsync(PersistAsync);
+            }
+            catch (TaskCanceledException)
+            {
+            }
+        });
+    }
+
+    private async Task PersistAsync()
+    {
+        if (_settings is null)
+        {
+            return;
+        }
+
+        var stored = _settings.JsonYaml ??= new JsonYamlSettings();
+        stored.ConvertJsonInput = _jsonInput;
+        stored.ConvertYamlInput = _yamlInput;
+        stored.SchemaInput = _schemaInput;
+        stored.SchemaDataInput = _schemaDataInput;
+        stored.LastUpdated = DateTimeOffset.UtcNow;
+
+        await SettingsService.SaveSettingsAsync(_settings);
+    }
+
+    private static object? ConvertJsonElement(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Object => element
+                .EnumerateObject()
+                .ToDictionary(property => property.Name, property => ConvertJsonElement(property.Value)),
+            JsonValueKind.Array => element
+                .EnumerateArray()
+                .Select(ConvertJsonElement)
+                .ToList(),
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null,
+            _ => null
+        };
+    }
+
+    private static object? NormalizeYamlObject(object? value)
+    {
+        switch (value)
+        {
+            case IDictionary dictionary:
+                var normalizedDict = new Dictionary<string, object?>(StringComparer.Ordinal);
+                foreach (DictionaryEntry entry in dictionary)
+                {
+                    var key = Convert.ToString(entry.Key, CultureInfo.InvariantCulture) ?? string.Empty;
+                    normalizedDict[key] = NormalizeYamlObject(entry.Value);
+                }
+                return normalizedDict;
+            case IEnumerable enumerable when value is not string:
+                var list = new List<object?>();
+                foreach (var item in enumerable)
+                {
+                    list.Add(NormalizeYamlObject(item));
+                }
+                return list;
+            default:
+                return value;
+        }
+    }
+
+    private sealed record SchemaValidationIssue(string Path, string Message);
+
+    public void Dispose()
+    {
+        _autosaveCts?.Cancel();
+    }
+}

@@ -1,18 +1,22 @@
 @page "/har"
-@attribute [ToolPage("HAR", "📊", "View and analyze HTTP Archive (HAR) files.", 3)]
+@attribute [ToolPage("HAR", "📊", "Inspect, sanitize, and replay HTTP Archive (HAR) captures.", 3)]
+@using System.Linq
+@using System.Text
 @using System.Text.Json
 @using DevToolkit.Infrastructure
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
 
-<PageTitle>HAR</PageTitle>
+<PageTitle>HAR Replay &amp; Sanitizer</PageTitle>
 
 <div class="page-container">
 <FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
-    <FluentLabel Typo="Typography.PageTitle">HAR File Viewer</FluentLabel>
+    <FluentLabel Typo="Typography.PageTitle">HAR Replay &amp; Sanitizer</FluentLabel>
     
     <FluentCard Style="padding: 20px;">
-        <FluentLabel Typo="Typography.Subject">Paste HAR Content</FluentLabel>
+        <FluentLabel Typo="Typography.Subject">Load HAR content</FluentLabel>
         <div class="har-load-row">
-            <InputFile OnChange="LoadHarFile" accept=".har,.hat,application/json"/>
+            <InputFile OnChange="LoadHarFile" accept=".har,.hat,application/json" />
         </div>
         <textarea class="har-input"
                   @bind="_harContent"
@@ -24,27 +28,129 @@
     @if (_entries.Any())
     {
         <FluentCard Style="padding: 20px;">
-            <FluentLabel Typo="Typography.Subject">HTTP Requests (@_entries.Count)</FluentLabel>
-            <FluentDataGrid Items="@_entries.AsQueryable()" Style="margin-top: 10px;" GridTemplateColumns="1fr 2fr 1fr 1fr">
+            <FluentLabel Typo="Typography.Subject">Filter &amp; sanitize</FluentLabel>
+            <div class="har-controls-grid">
+                <div>
+                    <label>Search</label>
+                    <FluentTextField Value="@_filterText" ValueChanged="@((string value) => OnFilterTextChanged(value))" Placeholder="URL, header, host..." />
+                </div>
+                <div>
+                    <label>Method</label>
+                    <FluentCombobox Items="@_methodOptions"
+                                    SelectedOption="@_methodFilter"
+                                    SelectedOptionChanged="@((string? value) => OnMethodFilterChanged(value))"
+                                    Style="min-width: 130px;"
+                                    Class="readonly-combo">
+                        <OptionTemplate>@context</OptionTemplate>
+                    </FluentCombobox>
+                </div>
+                <div>
+                    <label>Status</label>
+                    <FluentCombobox Items="@_statusOptions"
+                                    SelectedOption="@_statusFilter"
+                                    SelectedOptionChanged="@((string? value) => OnStatusFilterChanged(value))"
+                                    Style="min-width: 130px;"
+                                    Class="readonly-combo">
+                        <OptionTemplate>@context</OptionTemplate>
+                    </FluentCombobox>
+                </div>
+                <FluentCheckbox Checked="@_onlyErrors" CheckedChanged="@((bool value) => OnOnlyErrorsChanged(value))">Only errors</FluentCheckbox>
+            </div>
+
+            <FluentDivider Style="margin: 16px 0;" />
+
+            <FluentLabel Typo="Typography.Body">Sanitizer options</FluentLabel>
+            <div class="har-sanitizer-grid">
+                <FluentCheckbox Checked="@_stripQuery" CheckedChanged="@((bool value) => ToggleStripQuery(value))">Strip query string</FluentCheckbox>
+                <FluentCheckbox Checked="@_redactAuth" CheckedChanged="@((bool value) => ToggleRedactAuth(value))">Redact Authorization</FluentCheckbox>
+                <FluentCheckbox Checked="@_redactCookies" CheckedChanged="@((bool value) => ToggleRedactCookies(value))">Redact cookies</FluentCheckbox>
+                <FluentCheckbox Checked="@_redactBodies" CheckedChanged="@((bool value) => ToggleRedactBodies(value))">Redact bodies</FluentCheckbox>
+            </div>
+
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; margin-top: 12px; flex-wrap: wrap;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="CopySanitizedHar">Copy sanitized HAR</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="CopyVisibleCurl" Disabled="@string.IsNullOrEmpty(_curlPreview)">Copy selected cURL</FluentButton>
+            </FluentStack>
+        </FluentCard>
+
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Summary</FluentLabel>
+            <div class="har-summary-grid">
+                <div>
+                    <span class="summary-label">Total requests</span>
+                    <span class="summary-value">@_entries.Count</span>
+                </div>
+                <div>
+                    <span class="summary-label">Filtered view</span>
+                    <span class="summary-value">@_filteredEntries.Count</span>
+                </div>
+                <div>
+                    <span class="summary-label">Hosts</span>
+                    <span class="summary-value">@_entries.Select(e => e.Host).Distinct().Count()</span>
+                </div>
+                <div>
+                    <span class="summary-label">Total time</span>
+                    <span class="summary-value">@_entries.Sum(e => e.Time) ms</span>
+                </div>
+                <div>
+                    <span class="summary-label">2xx</span>
+                    <span class="summary-value">@_entries.Count(e => e.Status is >= 200 and < 300)</span>
+                </div>
+                <div>
+                    <span class="summary-label">4xx/5xx</span>
+                    <span class="summary-value">@_entries.Count(e => e.Status >= 400)</span>
+                </div>
+            </div>
+        </FluentCard>
+
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">HTTP Requests (@_filteredEntries.Count)</FluentLabel>
+            <FluentDataGrid Items="@_filteredEntries.AsQueryable()" Style="margin-top: 10px;" GridTemplateColumns="90px 2fr 100px 100px 120px">
                 <PropertyColumn Property="@(e => e.Method)" Title="Method" />
                 <PropertyColumn Property="@(e => e.Url)" Title="URL" />
                 <TemplateColumn Title="Status" Context="entry">
                     <span class="@GetStatusClass(entry.Status)">@entry.Status</span>
                 </TemplateColumn>
                 <PropertyColumn Property="@(e => e.Time)" Title="Time (ms)" />
+                <TemplateColumn Title="Replay" Context="entry">
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="() => SelectEntry(entry)" Style="font-size: 0.85rem;">Inspect</FluentButton>
+                </TemplateColumn>
             </FluentDataGrid>
         </FluentCard>
 
-        <FluentCard Style="padding: 20px;">
-            <FluentLabel Typo="Typography.Subject">Summary</FluentLabel>
-            <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px; margin-top: 10px;">
-                <FluentLabel>Total Requests: @_entries.Count</FluentLabel>
-                <FluentLabel>Total Time: @_entries.Sum(e => e.Time) ms</FluentLabel>
-                <FluentLabel>Successful (2xx): @_entries.Count(e => e.Status >= 200 && e.Status < 300)</FluentLabel>
-                <FluentLabel>Client Errors (4xx): @_entries.Count(e => e.Status >= 400 && e.Status < 500)</FluentLabel>
-                <FluentLabel>Server Errors (5xx): @_entries.Count(e => e.Status >= 500 && e.Status < 600)</FluentLabel>
-            </FluentStack>
-        </FluentCard>
+        @if (_selectedEntry is not null)
+        {
+            <FluentCard Style="padding: 20px;">
+                <FluentLabel Typo="Typography.Subject">Selected request</FluentLabel>
+                <FluentStack Orientation="Orientation.Vertical" Style="gap: 6px; margin-top: 10px;">
+                    <FluentLabel Style="font-weight: 600;">@_selectedEntry.Method @SanitizeUrl(_selectedEntry.Url)</FluentLabel>
+                    <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">Status @_selectedEntry.Status (@_selectedEntry.StatusText ?? "") | @_selectedEntry.Time ms | @_selectedEntry.MimeType</FluentLabel>
+                </FluentStack>
+
+                <FluentTabs Style="margin-top: 16px;">
+                    <FluentTab TabId="request" HeaderText="Request headers">
+                        <pre class="har-pre">@FormatHeaders(_selectedEntry.RequestHeaders)</pre>
+                    </FluentTab>
+                    <FluentTab TabId="response" HeaderText="Response headers">
+                        <pre class="har-pre">@FormatHeaders(_selectedEntry.ResponseHeaders)</pre>
+                    </FluentTab>
+                    <FluentTab TabId="json" HeaderText="Sanitized payload">
+                        <pre class="har-pre">@_sanitizedEntryJson</pre>
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="CopySelectedJson" Style="margin-top: 8px;">Copy JSON</FluentButton>
+                    </FluentTab>
+                    <FluentTab TabId="curl" HeaderText="Replay (cURL)">
+                        <pre class="har-pre">@_curlPreview</pre>
+                        <FluentButton Appearance="Appearance.Accent" OnClick="CopyVisibleCurl" Style="margin-top: 8px;" Disabled="@string.IsNullOrEmpty(_curlPreview)">Copy cURL</FluentButton>
+                    </FluentTab>
+                </FluentTabs>
+            </FluentCard>
+        }
+        else
+        {
+            <FluentCard Style="padding: 20px;">
+                <FluentLabel Typo="Typography.Body">Select a request to preview sanitized details.</FluentLabel>
+            </FluentCard>
+        }
     }
 
     @if (!string.IsNullOrWhiteSpace(_errorMessage))
@@ -60,6 +166,21 @@
     private string _harContent = string.Empty;
     private string _errorMessage = string.Empty;
     private readonly List<HarEntry> _entries = new();
+    private readonly List<HarEntry> _filteredEntries = new();
+    private readonly List<string> _methodOptions = new() { "All" };
+    private readonly List<string> _statusOptions = new() { "All", "2xx", "3xx", "4xx", "5xx" };
+    private HarEntry? _selectedEntry;
+    private string _filterText = string.Empty;
+    private string _methodFilter = "All";
+    private string _statusFilter = "All";
+    private bool _onlyErrors;
+    private bool _stripQuery = true;
+    private bool _redactAuth = true;
+    private bool _redactCookies = true;
+    private bool _redactBodies = true;
+    private string _sanitizedEntryJson = string.Empty;
+    private string _curlPreview = string.Empty;
+    private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
     private async Task LoadHarFile(InputFileChangeEventArgs e)
     {
@@ -83,13 +204,19 @@
     {
         _errorMessage = string.Empty;
         _entries.Clear();
+        _filteredEntries.Clear();
+        _selectedEntry = null;
+        _sanitizedEntryJson = string.Empty;
+        _curlPreview = string.Empty;
+        _methodOptions.Clear();
+        _methodOptions.Add("All");
 
         try
         {
             using var document = JsonDocument.Parse(_harContent);
             var root = document.RootElement;
 
-            if (root.TryGetProperty("log", out var log) && 
+            if (root.TryGetProperty("log", out var log) &&
                 log.TryGetProperty("entries", out var entriesElement))
             {
                 foreach (var entry in entriesElement.EnumerateArray())
@@ -99,14 +226,59 @@
 
                     var harEntry = new HarEntry
                     {
-                        Method = request.GetProperty("method").GetString() ?? "",
-                        Url = request.GetProperty("url").GetString() ?? "",
+                        Method = request.GetProperty("method").GetString() ?? string.Empty,
+                        Url = request.GetProperty("url").GetString() ?? string.Empty,
                         Status = response.GetProperty("status").GetInt32(),
-                        Time = (int)entry.GetProperty("time").GetDouble()
+                        StatusText = response.TryGetProperty("statusText", out var statusText) ? statusText.GetString() : null,
+                        Time = entry.TryGetProperty("time", out var timeElement) ? (int)timeElement.GetDouble() : 0,
+                        MimeType = response.TryGetProperty("content", out var content) && content.TryGetProperty("mimeType", out var mime) ? mime.GetString() ?? string.Empty : string.Empty,
+                        TransferSize = entry.TryGetProperty("_transferSize", out var transfer) ? transfer.GetDouble() : 0
                     };
+
+                    if (entry.TryGetProperty("startedDateTime", out var startElement) && DateTime.TryParse(startElement.GetString(), out var started))
+                    {
+                        harEntry.StartedDateTime = started;
+                    }
+
+                    if (request.TryGetProperty("headers", out var requestHeaders))
+                    {
+                        foreach (var header in requestHeaders.EnumerateArray())
+                        {
+                            var name = header.TryGetProperty("name", out var nameElement) ? nameElement.GetString() ?? string.Empty : string.Empty;
+                            var value = header.TryGetProperty("value", out var valueElement) ? valueElement.GetString() ?? string.Empty : string.Empty;
+                            harEntry.RequestHeaders.Add(new HarHeader { Name = name, Value = value });
+                        }
+                    }
+
+                    if (response.TryGetProperty("headers", out var responseHeaders))
+                    {
+                        foreach (var header in responseHeaders.EnumerateArray())
+                        {
+                            var name = header.TryGetProperty("name", out var nameElement) ? nameElement.GetString() ?? string.Empty : string.Empty;
+                            var value = header.TryGetProperty("value", out var valueElement) ? valueElement.GetString() ?? string.Empty : string.Empty;
+                            harEntry.ResponseHeaders.Add(new HarHeader { Name = name, Value = value });
+                        }
+                    }
+
+                    if (request.TryGetProperty("postData", out var postData) && postData.TryGetProperty("text", out var requestBody))
+                    {
+                        harEntry.RequestBody = requestBody.GetString();
+                    }
+
+                    if (response.TryGetProperty("content", out var responseContent) && responseContent.TryGetProperty("text", out var responseBody))
+                    {
+                        harEntry.ResponseBody = responseBody.GetString();
+                    }
 
                     _entries.Add(harEntry);
                 }
+
+                foreach (var method in _entries.Select(e => e.Method).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(m => m))
+                {
+                    _methodOptions.Add(method);
+                }
+
+                ApplyFilters();
             }
             else
             {
@@ -119,16 +291,299 @@
         }
     }
 
-    private class HarEntry
+    private void ApplyFilters()
     {
-        public string Method { get; set; } = string.Empty;
-        public string Url { get; set; } = string.Empty;
-        public int Status { get; set; }
-        public int Time { get; set; }
+        _filteredEntries.Clear();
+        foreach (var entry in _entries)
+        {
+            if (MatchesFilters(entry))
+            {
+                _filteredEntries.Add(entry);
+            }
+        }
+
+        if (_selectedEntry is not null && !_filteredEntries.Contains(_selectedEntry))
+        {
+            _selectedEntry = null;
+            _sanitizedEntryJson = string.Empty;
+            _curlPreview = string.Empty;
+        }
+    }
+
+    private bool MatchesFilters(HarEntry entry)
+    {
+        if (_onlyErrors && entry.Status < 400)
+        {
+            return false;
+        }
+
+        if (_methodFilter != "All" && !entry.Method.Equals(_methodFilter, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (_statusFilter != "All" && !StatusMatches(entry.Status, _statusFilter))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_filterText))
+        {
+            return true;
+        }
+
+        var term = _filterText.Trim();
+        return entry.Url.Contains(term, StringComparison.OrdinalIgnoreCase)
+               || entry.Host.Contains(term, StringComparison.OrdinalIgnoreCase)
+               || entry.RequestHeaders.Any(h => h.Value.Contains(term, StringComparison.OrdinalIgnoreCase))
+               || entry.ResponseHeaders.Any(h => h.Value.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool StatusMatches(int status, string bucket) => bucket switch
+    {
+        "2xx" => status is >= 200 and < 300,
+        "3xx" => status is >= 300 and < 400,
+        "4xx" => status is >= 400 and < 500,
+        "5xx" => status >= 500,
+        _ => true
+    };
+
+    private void SelectEntry(HarEntry entry)
+    {
+        _selectedEntry = entry;
+        UpdateSelectedPreview();
+    }
+
+    private void UpdateSelectedPreview()
+    {
+        if (_selectedEntry is null)
+        {
+            _sanitizedEntryJson = string.Empty;
+            _curlPreview = string.Empty;
+            return;
+        }
+
+        _sanitizedEntryJson = BuildSanitizedEntryJson(_selectedEntry);
+        _curlPreview = BuildCurlCommand(_selectedEntry);
+    }
+
+    private string BuildSanitizedEntryJson(HarEntry entry)
+    {
+        var payload = new
+        {
+            entry.Method,
+            Url = SanitizeUrl(entry.Url),
+            RequestHeaders = entry.RequestHeaders.Select(h => new { h.Name, Value = SanitizeHeaderValue(h.Name, h.Value) }),
+            RequestBody = SanitizeBody(entry.RequestBody),
+            entry.Status,
+            ResponseHeaders = entry.ResponseHeaders.Select(h => new { h.Name, Value = SanitizeHeaderValue(h.Name, h.Value) }),
+            ResponseBody = SanitizeBody(entry.ResponseBody)
+        };
+
+        return JsonSerializer.Serialize(payload, _jsonOptions);
+    }
+
+    private string BuildCurlCommand(HarEntry entry)
+    {
+        var builder = new StringBuilder();
+        builder.Append($"curl -X {entry.Method} \"{SanitizeUrl(entry.Url)}\"");
+
+        foreach (var header in entry.RequestHeaders)
+        {
+            var sanitized = SanitizeHeaderValue(header.Name, header.Value);
+            builder.AppendLine();
+            builder.Append($"  -H \"{header.Name}: {sanitized}\"");
+        }
+
+        var body = SanitizeBody(entry.RequestBody);
+        if (!string.IsNullOrWhiteSpace(entry.RequestBody))
+        {
+            builder.AppendLine();
+            builder.Append($"  --data-raw '{EscapeSingleQuotes(body)}'");
+        }
+
+        return builder.ToString();
+    }
+
+    private string BuildSanitizedHarExport()
+    {
+        var entries = _entries.Select(entry => new
+        {
+            entry.Method,
+            Url = SanitizeUrl(entry.Url),
+            Headers = entry.RequestHeaders.Select(h => new { h.Name, Value = SanitizeHeaderValue(h.Name, h.Value) }),
+            Body = SanitizeBody(entry.RequestBody),
+            entry.Status,
+            ResponseHeaders = entry.ResponseHeaders.Select(h => new { h.Name, Value = SanitizeHeaderValue(h.Name, h.Value) }),
+            ResponseBody = SanitizeBody(entry.ResponseBody),
+            entry.Time
+        });
+
+        var payload = new { log = new { entries } };
+        return JsonSerializer.Serialize(payload, _jsonOptions);
+    }
+
+    private async Task CopySanitizedHar()
+    {
+        if (!_entries.Any())
+        {
+            return;
+        }
+
+        await CopyToClipboard(BuildSanitizedHarExport());
+    }
+
+    private async Task CopyVisibleCurl()
+    {
+        if (!string.IsNullOrEmpty(_curlPreview))
+        {
+            await CopyToClipboard(_curlPreview);
+        }
+    }
+
+    private async Task CopySelectedJson()
+    {
+        if (!string.IsNullOrEmpty(_sanitizedEntryJson))
+        {
+            await CopyToClipboard(_sanitizedEntryJson);
+        }
+    }
+
+    private Task CopyToClipboard(string text) => JS.InvokeVoidAsync("navigator.clipboard.writeText", text).AsTask();
+
+    private void OnFilterTextChanged(string value)
+    {
+        _filterText = value ?? string.Empty;
+        ApplyFilters();
+    }
+
+    private void OnMethodFilterChanged(string? value)
+    {
+        _methodFilter = value ?? "All";
+        ApplyFilters();
+    }
+
+    private void OnStatusFilterChanged(string? value)
+    {
+        _statusFilter = value ?? "All";
+        ApplyFilters();
+    }
+
+    private void OnOnlyErrorsChanged(bool value)
+    {
+        _onlyErrors = value;
+        ApplyFilters();
+    }
+
+    private void ToggleStripQuery(bool value)
+    {
+        _stripQuery = value;
+        UpdateSelectedPreview();
+    }
+
+    private void ToggleRedactAuth(bool value)
+    {
+        _redactAuth = value;
+        UpdateSelectedPreview();
+    }
+
+    private void ToggleRedactCookies(bool value)
+    {
+        _redactCookies = value;
+        UpdateSelectedPreview();
+    }
+
+    private void ToggleRedactBodies(bool value)
+    {
+        _redactBodies = value;
+        UpdateSelectedPreview();
+    }
+
+    private string SanitizeUrl(string url)
+    {
+        if (!_stripQuery)
+        {
+            return url;
+        }
+
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            ? uri.GetLeftPart(UriPartial.Path)
+            : url;
+    }
+
+    private string SanitizeHeaderValue(string name, string value)
+    {
+        if (_redactAuth && name.Contains("authorization", StringComparison.OrdinalIgnoreCase))
+        {
+            return "[REDACTED]";
+        }
+
+        if (_redactCookies && name.Contains("cookie", StringComparison.OrdinalIgnoreCase))
+        {
+            return "[REDACTED]";
+        }
+
+        return value;
+    }
+
+    private string SanitizeBody(string? body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return string.Empty;
+        }
+
+        return _redactBodies ? "[REDACTED]" : body;
+    }
+
+    private static string EscapeSingleQuotes(string value) => value.Replace("'", "'\\''");
+
+    private string FormatHeaders(IEnumerable<HarHeader> headers)
+    {
+        var builder = new StringBuilder();
+        foreach (var header in headers)
+        {
+            builder.AppendLine($"{header.Name}: {SanitizeHeaderValue(header.Name, header.Value)}");
+        }
+
+        return builder.Length == 0 ? "(none)" : builder.ToString();
     }
 
     private static string GetStatusClass(int status)
     {
-        return status is >= 200 and < 300 ? string.Empty : "status-error";
+        if (status is >= 200 and < 300)
+        {
+            return "status-ok";
+        }
+
+        if (status is >= 300 and < 400)
+        {
+            return "status-redirect";
+        }
+
+        return "status-error";
+    }
+
+    private sealed class HarEntry
+    {
+        public string Method { get; set; } = string.Empty;
+        public string Url { get; set; } = string.Empty;
+        public string Host => Uri.TryCreate(Url, UriKind.Absolute, out var uri) ? uri.Host : string.Empty;
+        public int Status { get; set; }
+        public string? StatusText { get; set; }
+        public int Time { get; set; }
+        public string MimeType { get; set; } = string.Empty;
+        public double TransferSize { get; set; }
+        public DateTime StartedDateTime { get; set; }
+        public string? RequestBody { get; set; }
+        public string? ResponseBody { get; set; }
+        public List<HarHeader> RequestHeaders { get; } = new();
+        public List<HarHeader> ResponseHeaders { get; } = new();
+    }
+
+    private sealed class HarHeader
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
     }
 }

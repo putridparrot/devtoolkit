@@ -1,0 +1,371 @@
+@page "/color-palette"
+@attribute [ToolPage("Palette/Contrast", "🎯", "Build palettes and check WCAG contrast ratios.", 10)]
+@using DevToolkit.Infrastructure
+@using Microsoft.FluentUI.AspNetCore.Components
+@using System
+@using System.Globalization
+@using System.Linq
+@using System.Threading.Tasks
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Color Palette &amp; Contrast</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px;">
+    <FluentLabel Typo="Typography.PageTitle">Palette &amp; Contrast Checker</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 16px;">
+            <FluentLabel Typo="Typography.Subject">Add Color</FluentLabel>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; flex-wrap: wrap;">
+                <FluentTextField Value="@_newColorName"
+                                 ValueChanged="@((string value) => _newColorName = value)"
+                                 Placeholder="Name (optional)"
+                                 Style="min-width: 200px;" />
+                <FluentTextField Value="@_newColorHex"
+                                 ValueChanged="@((string value) => _newColorHex = value)"
+                                 Placeholder="#2563eb"
+                                 Style="min-width: 180px;" />
+                <FluentButton Appearance="Appearance.Accent" OnClick="AddColor">Add</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="SetRandomColor">Random</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="@(() => LoadPreset("modern"))">Load Modern</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="@(() => LoadPreset("sunset"))">Load Sunset</FluentButton>
+            </FluentStack>
+        </FluentStack>
+    </FluentCard>
+
+    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    {
+        <FluentMessageBar Intent="@_statusIntent">@_statusMessage</FluentMessageBar>
+    }
+
+    <FluentCard Style="padding: 20px;">
+        <FluentLabel Typo="Typography.Subject">Palette</FluentLabel>
+        <div class="palette-grid">
+            @foreach (var swatch in _palette)
+            {
+                var textColor = IdealTextColor(swatch.Hex);
+                <div class="palette-card">
+                    <div class="palette-chip" style="background-color: @swatch.Hex; color: @textColor;">
+                        <span>@swatch.Name</span>
+                    </div>
+                    <div class="palette-meta">
+                        <FluentLabel><strong>@swatch.Hex</strong></FluentLabel>
+                        <FluentStack Orientation="Orientation.Horizontal" Style="gap: 6px; flex-wrap: wrap;">
+                            <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboardAsync(swatch.Hex)">
+                                <FluentIcon Icon="Icons.Regular.Size20.Copy" />
+                            </FluentButton>
+                            <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => SetForeground(swatch.Id)" Title="Use as foreground">
+                                <FluentIcon Icon="Icons.Regular.Size20.TextCaseTitle" />
+                            </FluentButton>
+                            <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => SetBackground(swatch.Id)" Title="Use as background">
+                                <FluentIcon Icon="Icons.Regular.Size20.Highlight" />
+                            </FluentButton>
+                        </FluentStack>
+                    </div>
+                </div>
+            }
+        </div>
+    </FluentCard>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentLabel Typo="Typography.Subject">Contrast Checker</FluentLabel>
+
+        <FluentStack Orientation="Orientation.Horizontal" Style="gap: 20px; flex-wrap: wrap;">
+            <FluentStack Orientation="Orientation.Vertical" Style="min-width: 220px; gap: 6px;">
+                <FluentLabel>Foreground</FluentLabel>
+                <FluentSelect TOption="ColorSwatch"
+                              Items="@_palette"
+                              @bind-SelectedOption="SelectedForeground"
+                              Style="min-width: 220px;">
+                    <OptionTemplate>@context.Name (@context.Hex)</OptionTemplate>
+                </FluentSelect>
+            </FluentStack>
+
+            <FluentStack Orientation="Orientation.Vertical" Style="min-width: 220px; gap: 6px;">
+                <FluentLabel>Background</FluentLabel>
+                <FluentSelect TOption="ColorSwatch"
+                              Items="@_palette"
+                              @bind-SelectedOption="SelectedBackground"
+                              Style="min-width: 220px;">
+                    <OptionTemplate>@context.Name (@context.Hex)</OptionTemplate>
+                </FluentSelect>
+            </FluentStack>
+        </FluentStack>
+
+        @if (_contrast is not null)
+        {
+            <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px; margin-top: 16px;">
+                <FluentLabel Style="font-size: 1.1rem; font-weight: 600;">Contrast Ratio: @_contrast.RatioText</FluentLabel>
+
+                    <div class="contrast-status">
+                      <span class="@StatusClass(_contrast.AaNormal)"
+                          title="@BadgeTooltip(ContrastBadge.AaNormal)"
+                          aria-label="@BadgeTooltip(ContrastBadge.AaNormal)">AA (Normal)</span>
+                      <span class="@StatusClass(_contrast.AaLarge)"
+                          title="@BadgeTooltip(ContrastBadge.AaLarge)"
+                          aria-label="@BadgeTooltip(ContrastBadge.AaLarge)">AA (Large)</span>
+                      <span class="@StatusClass(_contrast.AaaNormal)"
+                          title="@BadgeTooltip(ContrastBadge.AaaNormal)"
+                          aria-label="@BadgeTooltip(ContrastBadge.AaaNormal)">AAA (Normal)</span>
+                      <span class="@StatusClass(_contrast.AaaLarge)"
+                          title="@BadgeTooltip(ContrastBadge.AaaLarge)"
+                          aria-label="@BadgeTooltip(ContrastBadge.AaaLarge)">AAA (Large)</span>
+                    </div>
+
+                <div class="contrast-preview">
+                    <div class="preview-chip" style="background-color: @_contrast.BackgroundHex; color: @_contrast.ForegroundHex;">
+                        <span style="font-weight: 600;">Sample headline</span>
+                        <span style="font-size: 0.9rem; opacity: 0.9;">Readable body copy goes here.</span>
+                    </div>
+                    <div class="preview-chip" style="background-color: @_contrast.ForegroundHex; color: @_contrast.BackgroundHex;">
+                        <span>Inverse preview</span>
+                    </div>
+                </div>
+            </FluentStack>
+        }
+    </FluentCard>
+</FluentStack>
+</div>
+
+@code {
+    private readonly Random _random = new();
+
+    private List<ColorSwatch> _palette = [];
+    private string _newColorName = string.Empty;
+    private string _newColorHex = "#2563eb";
+    private ColorSwatch? _selectedForeground;
+    private ColorSwatch? _selectedBackground;
+    private ContrastResult? _contrast;
+
+    private string _statusMessage = string.Empty;
+    private MessageIntent _statusIntent = MessageIntent.Info;
+
+    protected override void OnInitialized()
+    {
+        LoadPreset("modern");
+    }
+
+    private void AddColor()
+    {
+        var normalized = NormalizeHex(_newColorHex);
+        if (normalized is null)
+        {
+            SetStatus("Enter a valid 3 or 6 digit HEX value.", MessageIntent.Error);
+            return;
+        }
+
+        var name = string.IsNullOrWhiteSpace(_newColorName)
+            ? $"Color {_palette.Count + 1}"
+            : _newColorName.Trim();
+
+        _palette.Add(CreateSwatch(name, normalized));
+        _newColorName = string.Empty;
+        _newColorHex = normalized;
+        SetStatus($"Added {name} ({normalized}).", MessageIntent.Success);
+        EnsureSelections();
+    }
+
+    private void SetRandomColor()
+    {
+        var hex = $"#{_random.Next(0x1000000):X6}";
+        _newColorHex = hex;
+        _newColorName = "Random";
+        SetStatus("Generated a random color. Click Add to include it in the palette.", MessageIntent.Info);
+    }
+
+    private void LoadPreset(string key)
+    {
+        _palette = key switch
+        {
+            "sunset" => new()
+            {
+                CreateSwatch("Sand", "#F7C59F"),
+                CreateSwatch("Coral", "#F27D72"),
+                CreateSwatch("Mulberry", "#B9375E"),
+                CreateSwatch("Midnight", "#1E1B4B")
+            },
+            _ => new()
+            {
+                CreateSwatch("Primary", "#2563EB"),
+                CreateSwatch("Secondary", "#0F172A"),
+                CreateSwatch("Accent", "#F97316"),
+                CreateSwatch("Muted", "#CBD5F5")
+            }
+        };
+
+        SelectedForeground = _palette.FirstOrDefault();
+        SelectedBackground = _palette.Skip(1).FirstOrDefault() ?? SelectedForeground;
+        SetStatus($"Loaded {key} palette.", MessageIntent.Success);
+    }
+
+    private void SetForeground(string id)
+    {
+        var swatch = _palette.FirstOrDefault(p => p.Id == id);
+        if (swatch is not null)
+        {
+            SelectedForeground = swatch;
+        }
+    }
+
+    private void SetBackground(string id)
+    {
+        var swatch = _palette.FirstOrDefault(p => p.Id == id);
+        if (swatch is not null)
+        {
+            SelectedBackground = swatch;
+        }
+    }
+
+    private void EnsureSelections()
+    {
+        SelectedForeground ??= _palette.FirstOrDefault();
+        SelectedBackground ??= _palette.Skip(1).FirstOrDefault() ?? SelectedForeground;
+    }
+
+    private void UpdateContrast()
+    {
+        if (_selectedForeground is null || _selectedBackground is null)
+        {
+            _contrast = null;
+            return;
+        }
+
+        _contrast = ContrastResult.From(_selectedForeground, _selectedBackground);
+    }
+
+    private void SetStatus(string message, MessageIntent intent)
+    {
+        _statusMessage = message;
+        _statusIntent = intent;
+    }
+
+    private async Task CopyToClipboardAsync(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            SetStatus($"Copied {text} to clipboard.", MessageIntent.Info);
+        }
+        catch
+        {
+            SetStatus("Clipboard copy failed.", MessageIntent.Error);
+        }
+    }
+
+    private static ColorSwatch CreateSwatch(string name, string hex)
+    {
+        var normalized = NormalizeHex(hex) ?? "#000000";
+        return new ColorSwatch(System.Guid.NewGuid().ToString("N"), name, normalized);
+    }
+
+    private static string? NormalizeHex(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var hex = value.Trim().TrimStart('#');
+        if (hex.Length == 3)
+        {
+            hex = string.Concat(hex.Select(c => $"{c}{c}"));
+        }
+
+        if (hex.Length != 6 || !hex.All(Uri.IsHexDigit))
+        {
+            return null;
+        }
+
+        return $"#{hex.ToUpperInvariant()}";
+    }
+
+    private static string IdealTextColor(string hex)
+    {
+        var luminance = RelativeLuminance(hex);
+        return luminance > 0.5 ? "#0F172A" : "#F8FAFC";
+    }
+
+    private static double RelativeLuminance(string hex)
+    {
+        var (r, g, b) = ParseRgb(hex);
+        return 0.2126 * Linearize(r) + 0.7152 * Linearize(g) + 0.0722 * Linearize(b);
+    }
+
+    private static (double R, double G, double B) ParseRgb(string hex)
+    {
+        var sanitized = NormalizeHex(hex) ?? "#000000";
+        var r = int.Parse(sanitized.Substring(1, 2), NumberStyles.HexNumber);
+        var g = int.Parse(sanitized.Substring(3, 2), NumberStyles.HexNumber);
+        var b = int.Parse(sanitized.Substring(5, 2), NumberStyles.HexNumber);
+        return (r / 255d, g / 255d, b / 255d);
+    }
+
+    private static double Linearize(double value)
+    {
+        return value <= 0.03928 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
+    }
+
+    private ColorSwatch? SelectedForeground
+    {
+        get => _selectedForeground;
+        set
+        {
+            _selectedForeground = value;
+            UpdateContrast();
+        }
+    }
+
+    private ColorSwatch? SelectedBackground
+    {
+        get => _selectedBackground;
+        set
+        {
+            _selectedBackground = value;
+            UpdateContrast();
+        }
+    }
+
+    private static string StatusClass(bool passes) => passes ? "contrast-pass" : "contrast-fail";
+
+    private static string BadgeTooltip(ContrastBadge badge) => badge switch
+    {
+        ContrastBadge.AaNormal => "WCAG AA normal text: ≥4.5:1 for body text under 18pt (or 14pt bold).",
+        ContrastBadge.AaLarge => "WCAG AA large text: ≥3:1 for text ≥18pt regular or ≥14pt bold.",
+        ContrastBadge.AaaNormal => "WCAG AAA normal text: ≥7:1 for standard body copy.",
+        ContrastBadge.AaaLarge => "WCAG AAA large text: ≥4.5:1 for large or bold text.",
+        _ => string.Empty
+    };
+
+    private enum ContrastBadge
+    {
+        AaNormal,
+        AaLarge,
+        AaaNormal,
+        AaaLarge
+    }
+
+    private sealed record ColorSwatch(string Id, string Name, string Hex);
+
+    private sealed record ContrastResult(string ForegroundName, string ForegroundHex, string BackgroundName, string BackgroundHex, double Ratio)
+    {
+        public string RatioText => Ratio.ToString("0.00", CultureInfo.InvariantCulture) + ":1";
+        public bool AaNormal => Ratio >= 4.5;
+        public bool AaLarge => Ratio >= 3.0;
+        public bool AaaNormal => Ratio >= 7.0;
+        public bool AaaLarge => Ratio >= 4.5;
+
+        public static ContrastResult From(ColorSwatch foreground, ColorSwatch background)
+        {
+            var fgL = RelativeLuminance(foreground.Hex);
+            var bgL = RelativeLuminance(background.Hex);
+            var ratio = (Math.Max(fgL, bgL) + 0.05) / (Math.Min(fgL, bgL) + 0.05);
+            return new ContrastResult(foreground.Name, foreground.Hex, background.Name, background.Hex, ratio);
+        }
+    }
+}
