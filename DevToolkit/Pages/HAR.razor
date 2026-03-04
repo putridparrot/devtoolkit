@@ -28,7 +28,7 @@
     @if (_entries.Any())
     {
         <FluentCard Style="padding: 20px;">
-            <FluentLabel Typo="Typography.Subject">Filter &amp; sanitize</FluentLabel>
+            <FluentLabel Typo="Typography.Subject" Class="har-section-label">Filter &amp; sanitize</FluentLabel>
             <div class="har-controls-grid">
                 <div>
                     <label>Search</label>
@@ -59,7 +59,7 @@
 
             <FluentDivider Style="margin: 16px 0;" />
 
-            <FluentLabel Typo="Typography.Body">Sanitizer options</FluentLabel>
+            <FluentLabel Typo="Typography.Body" Class="har-section-label">Sanitizer options</FluentLabel>
             <div class="har-sanitizer-grid">
                 <FluentCheckbox Checked="@_stripQuery" CheckedChanged="@((bool value) => ToggleStripQuery(value))">Strip query string</FluentCheckbox>
                 <FluentCheckbox Checked="@_redactAuth" CheckedChanged="@((bool value) => ToggleRedactAuth(value))">Redact Authorization</FluentCheckbox>

@@ -12,6 +12,18 @@
     margin-top: 10px;
 }
 
+.har-section-label {
+    display: block;
+    width: 100%;
+    margin-bottom: 12px;
+}
+
+.har-controls-grid label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+
 .status-error {
     color: #d13438;
     font-weight: 600;
