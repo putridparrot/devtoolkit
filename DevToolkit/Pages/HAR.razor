@@ -113,7 +113,12 @@
                 </TemplateColumn>
                 <PropertyColumn Property="@(e => e.Time)" Title="Time (ms)" />
                 <TemplateColumn Title="Replay" Context="entry">
-                    <FluentButton Appearance="Appearance.Stealth" OnClick="() => SelectEntry(entry)" Style="font-size: 0.85rem;">Inspect</FluentButton>
+                    <div class="har-replay-cell">
+                        <FluentButton Appearance="Appearance.Stealth"
+                                      OnClick="() => SelectEntry(entry)"
+                                      Style="font-size: 0.85rem; vertical-align: middle"
+                                      Class="har-inspect-button">Inspect</FluentButton>
+                    </div>
                 </TemplateColumn>
             </FluentDataGrid>
         </FluentCard>
@@ -124,21 +129,21 @@
                 <FluentLabel Typo="Typography.Subject">Selected request</FluentLabel>
                 <FluentStack Orientation="Orientation.Vertical" Style="gap: 6px; margin-top: 10px;">
                     <FluentLabel Style="font-weight: 600;">@_selectedEntry.Method @SanitizeUrl(_selectedEntry.Url)</FluentLabel>
-                    <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">Status @_selectedEntry.Status (@_selectedEntry.StatusText ?? "") | @_selectedEntry.Time ms | @_selectedEntry.MimeType</FluentLabel>
+                    <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">Status @_selectedEntry.Status (@_selectedEntry.StatusText) | @_selectedEntry.Time ms | @_selectedEntry.MimeType</FluentLabel>
                 </FluentStack>
 
                 <FluentTabs Style="margin-top: 16px;">
-                    <FluentTab TabId="request" HeaderText="Request headers">
+                    <FluentTab TabId="request" Label="Request headers">
                         <pre class="har-pre">@FormatHeaders(_selectedEntry.RequestHeaders)</pre>
                     </FluentTab>
-                    <FluentTab TabId="response" HeaderText="Response headers">
+                    <FluentTab TabId="response" Label="Response headers">
                         <pre class="har-pre">@FormatHeaders(_selectedEntry.ResponseHeaders)</pre>
                     </FluentTab>
-                    <FluentTab TabId="json" HeaderText="Sanitized payload">
+                    <FluentTab TabId="json" Label="Sanitized payload">
                         <pre class="har-pre">@_sanitizedEntryJson</pre>
                         <FluentButton Appearance="Appearance.Stealth" OnClick="CopySelectedJson" Style="margin-top: 8px;">Copy JSON</FluentButton>
                     </FluentTab>
-                    <FluentTab TabId="curl" HeaderText="Replay (cURL)">
+                    <FluentTab TabId="curl" Label="Replay (cURL)">
                         <pre class="har-pre">@_curlPreview</pre>
                         <FluentButton Appearance="Appearance.Accent" OnClick="CopyVisibleCurl" Style="margin-top: 8px;" Disabled="@string.IsNullOrEmpty(_curlPreview)">Copy cURL</FluentButton>
                     </FluentTab>

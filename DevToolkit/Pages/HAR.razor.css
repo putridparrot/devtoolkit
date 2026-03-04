@@ -28,3 +28,13 @@
     color: #d13438;
     font-weight: 600;
 }
+
+.har-inspect-button {
+    align-self: center;
+}
+
+.har-replay-cell {
+    display: flex;
+    align-items: center;
+    height: 100%;
+}
