@@ -96,7 +96,7 @@
         </FluentStack>
     </FluentCard>
 
-    <FluentCard Style="padding: 20px;">
+@*     <FluentCard Style="padding: 20px;">
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 16px;">
             <FluentLabel Typo="Typography.Subject">Schedule Planner</FluentLabel>
 
@@ -177,7 +177,7 @@
                                 <span>@participant.LocalMeetingText</span>
                                 <span class="participant-day">@participant.DayNote</span>
                             </div>
-                            <span class="participant-status @(participant.WithinHours ? "status-pass" : "status-warn")">@participant.StatusText</span>
+                            <span class="participant-status @(participant.WithinHours ? "status-pass" : "status-warn")" style="color: white;">@participant.StatusText</span>
                             <div>
                                 <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => RemoveParticipant(participant.Id)">
                                     <FluentIcon Icon="Icons.Regular.Size20.Dismiss" />
@@ -212,7 +212,7 @@
             }
         </FluentStack>
     </FluentCard>
-</FluentStack>
+ *@</FluentStack>
 </div>
 
 @code {
