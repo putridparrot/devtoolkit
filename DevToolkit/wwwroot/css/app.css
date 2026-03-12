@@ -310,6 +310,18 @@ body[data-theme='dark'] fluent-card {
     flex: 1;
 }
 
+.diff-char-inserted {
+    background-color: rgba(16, 185, 129, 0.35);
+}
+
+.diff-char-deleted {
+    background-color: rgba(248, 113, 113, 0.4);
+}
+
+.diff-char-modified {
+    background-color: rgba(250, 204, 21, 0.45);
+}
+
 .diff-line-inserted {
     background-color: rgba(16, 185, 129, 0.18);
 }

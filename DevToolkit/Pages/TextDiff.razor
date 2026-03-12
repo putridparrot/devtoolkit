@@ -5,7 +5,9 @@
 @using DiffPlex.Chunkers
 @using DiffPlex.DiffBuilder
 @using DiffPlex.DiffBuilder.Model
+@using System.Net
 @using System.Linq
+@using System.Text
 
 <PageTitle>Text Diff</PageTitle>
 
@@ -70,12 +72,13 @@
         <FluentCard Style="padding: 20px;">
             <FluentLabel Typo="Typography.Subject">Diff Output</FluentLabel>
             <div class="diff-output" aria-label="diff results">
-                @foreach (var line in _diffResult.Lines)
+                @for (var i = 0; i < _diffResult.Lines.Count; i++)
                 {
+                    var line = _diffResult.Lines[i];
                     var cssClass = $"diff-line {CssModifier(line.Type)}";
                     <div class="@cssClass">
                         <span class="diff-line-marker">@MarkerFor(line.Type)</span>
-                        <pre>@(line.Text ?? string.Empty)</pre>
+                        <pre>@((MarkupString)FormatLine(i, line))</pre>
                     </div>
                 }
             </div>
@@ -168,6 +171,96 @@ X-Env: production";
         ChangeType.Deleted => "diff-line-deleted",
         ChangeType.Modified => "diff-line-modified",
         _ => "diff-line-unchanged"
+    };
+
+    private string FormatLine(int index, DiffPiece line)
+    {
+        var lineText = line.Text ?? string.Empty;
+        var counterpartText = FindCounterpartText(index, line.Type);
+
+        if (counterpartText is null)
+        {
+            return WebUtility.HtmlEncode(lineText);
+        }
+
+        var builder = new StringBuilder();
+        var maxLength = Math.Max(lineText.Length, counterpartText.Length);
+        for (var i = 0; i < maxLength; i++)
+        {
+            if (i >= lineText.Length)
+            {
+                continue;
+            }
+
+            var currentChar = lineText[i];
+            var hasCounterpartChar = i < counterpartText.Length;
+            var counterpartChar = hasCounterpartChar ? counterpartText[i] : '\0';
+            var isDifferent = !hasCounterpartChar || !CharsEqual(currentChar, counterpartChar);
+            var encodedChar = WebUtility.HtmlEncode(currentChar.ToString());
+
+            if (!isDifferent)
+            {
+                builder.Append(encodedChar);
+            }
+            else
+            {
+                var css = CharCssModifier(line.Type);
+                builder.Append("<span class=\"")
+                    .Append(css)
+                    .Append("\">")
+                    .Append(encodedChar)
+                    .Append("</span>");
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private string? FindCounterpartText(int index, ChangeType type)
+    {
+        if (_diffResult is null)
+        {
+            return null;
+        }
+
+        var lines = _diffResult.Lines;
+
+        static bool IsComparable(ChangeType t) => t is ChangeType.Inserted or ChangeType.Deleted or ChangeType.Modified;
+
+        if (!IsComparable(type))
+        {
+            return null;
+        }
+
+        for (var offset = 1; offset <= 2; offset++)
+        {
+            var forward = index + offset;
+            if (forward < lines.Count && lines[forward].Type != type && IsComparable(lines[forward].Type))
+            {
+                return lines[forward].Text ?? string.Empty;
+            }
+
+            var backward = index - offset;
+            if (backward >= 0 && lines[backward].Type != type && IsComparable(lines[backward].Type))
+            {
+                return lines[backward].Text ?? string.Empty;
+            }
+        }
+
+        return null;
+    }
+
+    private bool CharsEqual(char left, char right)
+        => _ignoreCase
+            ? char.ToUpperInvariant(left) == char.ToUpperInvariant(right)
+            : left == right;
+
+    private static string CharCssModifier(ChangeType type) => type switch
+    {
+        ChangeType.Inserted => "diff-char-inserted",
+        ChangeType.Deleted => "diff-char-deleted",
+        ChangeType.Modified => "diff-char-modified",
+        _ => string.Empty
     };
 
     private sealed record DiffSummary(int Added, int Removed, int Modified)
