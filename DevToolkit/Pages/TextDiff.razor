@@ -38,11 +38,11 @@
             </FluentStack>
 
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 20px; flex-wrap: wrap; align-items: center;">
-                <FluentCheckbox Checked="State.IgnoreWhitespace"
-                                CheckedChanged="(bool? value) => State.IgnoreWhitespace = value ?? false"
+                <FluentCheckbox Value="State.IgnoreWhitespace"
+                                ValueChanged="(bool value) => State.IgnoreWhitespace = value"
                                 Label="Ignore whitespace" />
-                <FluentCheckbox Checked="State.IgnoreCase"
-                                CheckedChanged="(bool? value) => State.IgnoreCase = value ?? false"
+                <FluentCheckbox Value="State.IgnoreCase"
+                                ValueChanged="(bool value) => State.IgnoreCase = value"
                                 Label="Ignore case" />
             </FluentStack>
 
