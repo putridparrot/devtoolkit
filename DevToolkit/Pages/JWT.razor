@@ -1,5 +1,6 @@
 @page "/jwt"
 @attribute [ToolPage("JWT", "🔐", "Decode and inspect JWT tokens easily.", 2)]
+@inject ToolStateStore Store
 @using System.Text.Json
 @using DevToolkit.Infrastructure
 @using DevToolkit.Services
@@ -16,13 +17,13 @@
                 <FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; padding: 20px;">
                     <FluentCard Style="padding: 20px;">
                         <FluentLabel Typo="Typography.Subject">Paste JWT Token</FluentLabel>
-                        <FluentTextArea Value="@_jwtToken" ValueChanged="@((string val) => _jwtToken = val)" Placeholder="Paste your JWT token here..." Rows="5" Style="width: 100%; margin-top: 10px;" />
+                        <FluentTextArea Value="@State.JwtToken" ValueChanged="@((string val) => State.JwtToken = val)" Placeholder="Paste your JWT token here..." Rows="5" Style="width: 100%; margin-top: 10px;" />
                         <FluentButton Appearance="Appearance.Accent" OnClick="DecodeToken" Style="margin-top: 10px;">Decode JWT</FluentButton>
                     </FluentCard>
 
-                    @if (_decodedResult is not null && _decodedResult.Parts.Count > 0)
+                    @if (State.DecodedResult is not null && State.DecodedResult.Parts.Count > 0)
                     {
-                        @foreach (var part in _decodedResult.Parts)
+                        @foreach (var part in State.DecodedResult.Parts)
                         {
                             <FluentCard Style="padding: 20px;">
                                 <FluentLabel Typo="Typography.Subject">@part.Name</FluentLabel>
@@ -37,12 +38,12 @@
                             </FluentCard>
                         }
 
-                        @if (_decodedResult.Claims.Count > 0)
+                        @if (State.DecodedResult.Claims.Count > 0)
                         {
                             <FluentCard Style="padding: 20px;">
                                 <FluentLabel Typo="Typography.Subject">Claims</FluentLabel>
                                 <FluentStack Orientation="Orientation.Vertical" Style="gap: 8px; margin-top: 10px;">
-                                    @foreach (var claim in _decodedResult.Claims)
+                                    @foreach (var claim in State.DecodedResult.Claims)
                                     {
                                         <FluentLabel><strong>@claim.Key</strong>: @claim.Value</FluentLabel>
                                     }
@@ -51,10 +52,10 @@
                         }
                     }
 
-                    @if (!string.IsNullOrWhiteSpace(_decodeErrorMessage))
+                    @if (!string.IsNullOrWhiteSpace(State.DecodeErrorMessage))
                     {
                         <FluentMessageBar Intent="MessageIntent.Error">
-                            @_decodeErrorMessage
+                            @State.DecodeErrorMessage
                         </FluentMessageBar>
                     }
                 </FluentStack>
@@ -63,28 +64,28 @@
             <FluentTab Label="Encode">
                 <FluentStack Orientation="Orientation.Vertical" Style="gap: 15px; padding: 20px;">
                     <FluentLabel Typo="Typography.Subject">Header (JSON)</FluentLabel>
-                    <FluentTextArea Value="@_encodeHeaderJson" ValueChanged="@((string val) => _encodeHeaderJson = val)" Rows="6" Style="width: 100%; font-family: monospace;" />
+                    <FluentTextArea Value="@State.EncodeHeaderJson" ValueChanged="@((string val) => State.EncodeHeaderJson = val)" Rows="6" Style="width: 100%; font-family: monospace;" />
 
                     <FluentLabel Typo="Typography.Subject">Payload (JSON)</FluentLabel>
-                    <FluentTextArea Value="@_encodePayloadJson" ValueChanged="@((string val) => _encodePayloadJson = val)" Rows="8" Style="width: 100%; font-family: monospace;" />
+                    <FluentTextArea Value="@State.EncodePayloadJson" ValueChanged="@((string val) => State.EncodePayloadJson = val)" Rows="8" Style="width: 100%; font-family: monospace;" />
 
                     <FluentLabel Typo="Typography.Subject">Secret (optional)</FluentLabel>
-                    <FluentTextField Value="@_encodeSecret" ValueChanged="@((string val) => _encodeSecret = val)" Placeholder="Leave empty for unsigned token" Style="width: 100%;" />
+                    <FluentTextField Value="@State.EncodeSecret" ValueChanged="@((string val) => State.EncodeSecret = val)" Placeholder="Leave empty for unsigned token" Style="width: 100%;" />
 
                     <FluentButton Appearance="Appearance.Accent" OnClick="EncodeToken">Create JWT</FluentButton>
 
-                    @if (!string.IsNullOrWhiteSpace(_encodeErrorMessage))
+                    @if (!string.IsNullOrWhiteSpace(State.EncodeErrorMessage))
                     {
                         <FluentMessageBar Intent="MessageIntent.Error">
-                            @_encodeErrorMessage
+                            @State.EncodeErrorMessage
                         </FluentMessageBar>
                     }
 
                     <FluentCard Style="padding: 20px;">
                         <FluentLabel Typo="Typography.Subject">JWT Editor</FluentLabel>
                         <FluentTextArea Class="jwt-editor"
-                                        Value="@_generatedToken"
-                                        ValueChanged="@((string val) => _generatedToken = val)"
+                                        Value="@State.GeneratedToken"
+                                        ValueChanged="@((string val) => State.GeneratedToken = val)"
                                         Placeholder="Generated token will appear here after clicking Create JWT"
                                         Rows="6"
                                         Style="width: 100%; margin-top: 10px; font-family: monospace;" />
@@ -97,57 +98,54 @@
 </div>
 
 @code {
-    private string _jwtToken = string.Empty;
-    private string _decodeErrorMessage = string.Empty;
-    private JwtDecodeResult? _decodedResult;
+    private PageState State = null!;
 
-    private string _encodeHeaderJson = "{\n  \"alg\": \"HS256\",\n  \"typ\": \"JWT\"\n}";
-    private string _encodePayloadJson = "{\n  \"sub\": \"1234567890\",\n  \"name\": \"John Doe\",\n  \"iat\": 1516239022\n}";
-    private string _encodeSecret = string.Empty;
-    private string _encodeErrorMessage = string.Empty;
-    private string _generatedToken = string.Empty;
+    protected override void OnInitialized()
+    {
+        State = Store.Get<PageState>(out _);
+    }
 
     private readonly JwtTokenCodec _codec = new();
 
     private void DecodeToken()
     {
-        _decodeErrorMessage = string.Empty;
-        _decodedResult = null;
+        State.DecodeErrorMessage = string.Empty;
+        State.DecodedResult = null;
 
         try
         {
-            var parts = _jwtToken.Trim().Split('.', StringSplitOptions.None);
+            var parts = State.JwtToken.Trim().Split('.', StringSplitOptions.None);
             if (parts.Length < 2)
             {
-                _decodeErrorMessage = "Invalid token format. Expected at least 2 parts separated by dots.";
+                State.DecodeErrorMessage = "Invalid token format. Expected at least 2 parts separated by dots.";
                 return;
             }
 
-            _decodedResult = _codec.Decode(_jwtToken);
+            State.DecodedResult = _codec.Decode(State.JwtToken);
         }
         catch (Exception ex)
         {
-            _decodeErrorMessage = $"Error decoding JWT: {ex.Message}";
+            State.DecodeErrorMessage = $"Error decoding JWT: {ex.Message}";
         }
     }
 
     private void EncodeToken()
     {
-        _encodeErrorMessage = string.Empty;
-        _generatedToken = string.Empty;
+        State.EncodeErrorMessage = string.Empty;
+        State.GeneratedToken = string.Empty;
 
         try
         {
-            var header = ParseJsonObject(_encodeHeaderJson, "Header");
-            var payload = ParseJsonObject(_encodePayloadJson, "Payload");
+            var header = ParseJsonObject(State.EncodeHeaderJson, "Header");
+            var payload = ParseJsonObject(State.EncodePayloadJson, "Payload");
 
-            _generatedToken = string.IsNullOrWhiteSpace(_encodeSecret)
+            State.GeneratedToken = string.IsNullOrWhiteSpace(State.EncodeSecret)
                 ? _codec.Encode(header, payload)
-                : _codec.EncodeHs256(header, payload, _encodeSecret);
+                : _codec.EncodeHs256(header, payload, State.EncodeSecret);
         }
         catch (Exception ex)
         {
-            _encodeErrorMessage = $"Error creating JWT: {ex.Message}";
+            State.EncodeErrorMessage = $"Error creating JWT: {ex.Message}";
         }
     }
 
@@ -161,4 +159,16 @@
             ?? throw new InvalidOperationException($"{sectionName} JSON is empty.");
     }
 
+
+    private sealed class PageState
+    {
+        public string JwtToken = string.Empty;
+        public string DecodeErrorMessage = string.Empty;
+        public JwtDecodeResult? DecodedResult;
+        public string EncodeHeaderJson = "{\n  \"alg\": \"HS256\",\n  \"typ\": \"JWT\"\n}";
+        public string EncodePayloadJson = "{\n  \"sub\": \"1234567890\",\n  \"name\": \"John Doe\",\n  \"iat\": 1516239022\n}";
+        public string EncodeSecret = string.Empty;
+        public string EncodeErrorMessage = string.Empty;
+        public string GeneratedToken = string.Empty;
+    }
 }

@@ -1,5 +1,7 @@
 @page "/http-inspector"
-@attribute [ToolPage("HTTP Inspector", "🌐", "Parse curl commands or raw HTTP requests into structured details.", 12)]
+@attribute [ToolPage("HTTP Inspector", "🌐", "Parse curl commands or raw HTTP requests into structured details.", 15)]
+@using DevToolkit.Services
+@inject ToolStateStore Store
 @using DevToolkit.Infrastructure
 @using System.Linq
 @using System.Text
@@ -14,8 +16,8 @@
     <FluentCard Style="padding: 20px;">
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
             <FluentLabel Typo="Typography.Subject">curl Command or Raw HTTP Request</FluentLabel>
-            <FluentTextArea Value="@_requestInput"
-                            ValueChanged="@((string value) => _requestInput = value)"
+            <FluentTextArea Value="@State.RequestInput"
+                            ValueChanged="@((string value) => State.RequestInput = value)"
                             Rows="12"
                             Placeholder="Paste a curl command or raw HTTP request message"
                             Style="width: 100%; font-family: monospace;" />
@@ -29,12 +31,12 @@
         </FluentStack>
     </FluentCard>
 
-    @if (!string.IsNullOrWhiteSpace(_parseMessage))
+    @if (!string.IsNullOrWhiteSpace(State.ParseMessage))
     {
-        <FluentMessageBar Intent="@_parseIntent">@_parseMessage</FluentMessageBar>
+        <FluentMessageBar Intent="@State.ParseIntent">@State.ParseMessage</FluentMessageBar>
     }
 
-    @if (_parsedRequest is not null)
+    @if (State.ParsedRequest is not null)
     {
         <FluentCard Style="padding: 20px;">
             <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
@@ -42,53 +44,53 @@
                 <FluentStack Orientation="Orientation.Horizontal" Style="gap: 30px; flex-wrap: wrap;">
                     <FluentStack Orientation="Orientation.Vertical" Style="min-width: 180px;">
                         <FluentLabel Style="opacity: 0.7;">Method</FluentLabel>
-                        <FluentLabel Typo="Typography.Body">@_parsedRequest.Method</FluentLabel>
+                        <FluentLabel Typo="Typography.Body">@State.ParsedRequest.Method</FluentLabel>
                     </FluentStack>
                     <FluentStack Orientation="Orientation.Vertical" Style="min-width: 220px;">
                         <FluentLabel Style="opacity: 0.7;">URL</FluentLabel>
-                        <FluentLabel Typo="Typography.Body">@_parsedRequest.Url</FluentLabel>
+                        <FluentLabel Typo="Typography.Body">@State.ParsedRequest.Url</FluentLabel>
                     </FluentStack>
                     <FluentStack Orientation="Orientation.Vertical" Style="min-width: 180px;">
                         <FluentLabel Style="opacity: 0.7;">Host</FluentLabel>
-                        <FluentLabel Typo="Typography.Body">@(_parsedRequest.Host ?? "-")</FluentLabel>
+                        <FluentLabel Typo="Typography.Body">@(State.ParsedRequest.Host ?? "-")</FluentLabel>
                     </FluentStack>
                     <FluentStack Orientation="Orientation.Vertical" Style="min-width: 180px;">
                         <FluentLabel Style="opacity: 0.7;">HTTP Version</FluentLabel>
-                        <FluentLabel Typo="Typography.Body">@(_parsedRequest.HttpVersion ?? "-")</FluentLabel>
+                        <FluentLabel Typo="Typography.Body">@(State.ParsedRequest.HttpVersion ?? "-")</FluentLabel>
                     </FluentStack>
                 </FluentStack>
             </FluentStack>
         </FluentCard>
 
-        @if (_parsedRequest.QueryParameters.Count > 0)
+        @if (State.ParsedRequest.QueryParameters.Count > 0)
         {
             <FluentCard Style="padding: 20px;">
                 <FluentLabel Typo="Typography.Subject">Query Parameters</FluentLabel>
-                <FluentDataGrid Items="@_parsedRequest.QueryParameters.AsQueryable()" GridTemplateColumns="200px 1fr" Style="margin-top: 10px;">
+                <FluentDataGrid Items="@State.ParsedRequest.QueryParameters.AsQueryable()" GridTemplateColumns="200px 1fr" Style="margin-top: 10px;">
                     <PropertyColumn Property="@(entry => entry.Key)" Title="Key" />
                     <PropertyColumn Property="@(entry => entry.Value)" Title="Value" />
                 </FluentDataGrid>
             </FluentCard>
         }
 
-        @if (_parsedRequest.Headers.Count > 0)
+        @if (State.ParsedRequest.Headers.Count > 0)
         {
             <FluentCard Style="padding: 20px;">
                 <FluentLabel Typo="Typography.Subject">Headers</FluentLabel>
-                <FluentDataGrid Items="@_parsedRequest.Headers.AsQueryable()" GridTemplateColumns="220px 1fr" Style="margin-top: 10px;">
+                <FluentDataGrid Items="@State.ParsedRequest.Headers.AsQueryable()" GridTemplateColumns="220px 1fr" Style="margin-top: 10px;">
                     <PropertyColumn Property="@(entry => entry.Key)" Title="Header" />
                     <PropertyColumn Property="@(entry => entry.Value)" Title="Value" />
                 </FluentDataGrid>
             </FluentCard>
         }
 
-        @if (!string.IsNullOrWhiteSpace(_parsedRequest.DisplayBody))
+        @if (!string.IsNullOrWhiteSpace(State.ParsedRequest.DisplayBody))
         {
             <FluentCard Style="padding: 20px;">
                 <FluentLabel Typo="Typography.Subject">Body</FluentLabel>
-                <FluentTextArea Value="@_parsedRequest.DisplayBody"
+                <FluentTextArea Value="@State.ParsedRequest.DisplayBody"
                                 ReadOnly="true"
-                                Rows="@(_parsedRequest.BodyIsJson ? 12 : 8)"
+                                Rows="@(State.ParsedRequest.BodyIsJson ? 12 : 8)"
                                 Style="width: 100%; margin-top: 10px; font-family: monospace;" />
             </FluentCard>
         }
@@ -97,13 +99,13 @@
             <FluentLabel Typo="Typography.Subject">Code Snippets</FluentLabel>
             <FluentTabs Style="margin-top: 16px;">
                 <FluentTab Label="HttpClient">
-                    <FluentTextArea Value="@_httpClientSnippet"
+                    <FluentTextArea Value="@State.HttpClientSnippet"
                                     ReadOnly="true"
                                     Rows="10"
                                     Style="width: 100%; font-family: monospace;" />
                 </FluentTab>
                 <FluentTab Label="fetch">
-                    <FluentTextArea Value="@_fetchSnippet"
+                    <FluentTextArea Value="@State.FetchSnippet"
                                     ReadOnly="true"
                                     Rows="10"
                                     Style="width: 100%; font-family: monospace;" />
@@ -115,63 +117,63 @@
 </div>
 
 @code {
-    private string _requestInput = SampleCurl;
-    private HttpRequestModel? _parsedRequest;
-    private string _parseMessage = string.Empty;
-    private MessageIntent _parseIntent = MessageIntent.Info;
-    private string _httpClientSnippet = string.Empty;
-    private string _fetchSnippet = string.Empty;
+    private PageState State = null!;
+
+    protected override void OnInitialized()
+    {
+        State = Store.Get<PageState>(out _);
+    }
 
     private void ParseRequest()
     {
-        _parseMessage = string.Empty;
-        _parseIntent = MessageIntent.Info;
-        _parsedRequest = null;
-        _httpClientSnippet = string.Empty;
-        _fetchSnippet = string.Empty;
+        State.ParseMessage = string.Empty;
+        State.ParseIntent = MessageIntent.Info;
+        State.ParsedRequest = null;
+        State.HttpClientSnippet = string.Empty;
+        State.FetchSnippet = string.Empty;
 
-        if (string.IsNullOrWhiteSpace(_requestInput))
+        if (string.IsNullOrWhiteSpace(State.RequestInput))
         {
-            _parseMessage = "Provide a curl command or HTTP request to inspect.";
+            State.ParseMessage = "Provide a curl command or HTTP request to inspect.";
             return;
         }
 
         try
         {
-            var text = _requestInput.Trim();
-            _parsedRequest = text.StartsWith("curl", StringComparison.OrdinalIgnoreCase)
+            var text = State.RequestInput.Trim();
+            State.ParsedRequest = text.StartsWith("curl", StringComparison.OrdinalIgnoreCase)
                 ? ParseCurl(text)
                 : ParseRawHttp(text);
 
-            (_httpClientSnippet, _fetchSnippet) = BuildSnippets(_parsedRequest);
-            _parseMessage = "Request parsed successfully.";
-            _parseIntent = MessageIntent.Success;
+            (State.HttpClientSnippet, State.FetchSnippet) = BuildSnippets(State.ParsedRequest);
+            State.ParseMessage = "Request parsed successfully.";
+            State.ParseIntent = MessageIntent.Success;
         }
         catch (Exception ex)
         {
-            _parsedRequest = null;
-            _parseMessage = $"Unable to parse request: {ex.Message}";
-            _parseIntent = MessageIntent.Error;
+            State.ParsedRequest = null;
+            State.ParseMessage = $"Unable to parse request: {ex.Message}";
+            State.ParseIntent = MessageIntent.Error;
         }
     }
 
     private void UseSampleCurl()
     {
-        _requestInput = SampleCurl;
+        State.RequestInput = SampleCurl;
     }
 
     private void UseSampleRaw()
     {
-        _requestInput = SampleRawRequest;
+        State.RequestInput = SampleRawRequest;
     }
 
     private void ClearInspector()
     {
-        _requestInput = string.Empty;
-        _parsedRequest = null;
-        _parseMessage = string.Empty;
-        _httpClientSnippet = string.Empty;
-        _fetchSnippet = string.Empty;
+        State.RequestInput = string.Empty;
+        State.ParsedRequest = null;
+        State.ParseMessage = string.Empty;
+        State.HttpClientSnippet = string.Empty;
+        State.FetchSnippet = string.Empty;
     }
 
     private static HttpRequestModel ParseRawHttp(string text)
@@ -592,4 +594,14 @@ X-Correlation-Id: 123
     ""role"": ""admin""
 }";
 
+
+    private sealed class PageState
+    {
+        public string RequestInput = SampleCurl;
+        public HttpRequestModel? ParsedRequest;
+        public string ParseMessage = string.Empty;
+        public MessageIntent ParseIntent = MessageIntent.Info;
+        public string HttpClientSnippet = string.Empty;
+        public string FetchSnippet = string.Empty;
+    }
 }

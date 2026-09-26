@@ -1,0 +1,272 @@
+@page "/cidr"
+@attribute [ToolPage("CIDR/Subnet", "🧮", "Calculate IPv4 network ranges, masks and host counts from CIDR notation.", 20)]
+@using DevToolkit.Services
+@inject ToolStateStore Store
+@using System.Globalization
+@using System.Net
+@using System.Net.Sockets
+@using DevToolkit.Infrastructure
+@inject IJSRuntime JS
+
+<PageTitle>CIDR/Subnet Calculator</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
+    <FluentLabel Typo="Typography.PageTitle">CIDR / Subnet Calculator</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
+            <FluentLabel Typo="Typography.Subject">IPv4 network</FluentLabel>
+            <FluentTextField Value="@State.Input"
+                             ValueChanged="@((string value) => OnInputChanged(value))"
+                             Immediate="true"
+                             Placeholder="e.g. 10.0.0.0/16 or 192.168.1.10 255.255.255.0"
+                             Style="width: 100%; font-family: monospace;" />
+            <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">Enter an address with a prefix length (/24) or a dotted subnet mask.</FluentLabel>
+            @if (!string.IsNullOrWhiteSpace(State.ErrorMessage))
+            {
+                <FluentMessageBar Intent="MessageIntent.Error">@State.ErrorMessage</FluentMessageBar>
+            }
+        </FluentStack>
+    </FluentCard>
+
+    @if (State.Result is { } result)
+    {
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Network details</FluentLabel>
+            <div class="cidr-grid">
+                @foreach (var (label, value) in Describe(result))
+                {
+                    <span class="cidr-label">@label</span>
+                    <code class="cidr-value">@value</code>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="() => Copy(value)" Title="Copy">Copy</FluentButton>
+                }
+            </div>
+        </FluentCard>
+
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Binary</FluentLabel>
+            <div class="cidr-binary">
+                <span class="cidr-label">Address</span>
+                <code>@((MarkupString)ToBinaryMarkup(result.Address, result.PrefixLength))</code>
+                <span class="cidr-label">Mask</span>
+                <code>@((MarkupString)ToBinaryMarkup(result.Mask, result.PrefixLength))</code>
+                <span class="cidr-label">Network</span>
+                <code>@((MarkupString)ToBinaryMarkup(result.Network, result.PrefixLength))</code>
+            </div>
+            <FluentLabel Style="font-size: 0.85rem; opacity: 0.8; margin-top: 8px;">Highlighted bits are the network portion.</FluentLabel>
+        </FluentCard>
+
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Does this network contain an address?</FluentLabel>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; align-items: center; margin-top: 10px; flex-wrap: wrap;">
+                <FluentTextField Value="@State.ContainsInput"
+                                 ValueChanged="@((string value) => State.ContainsInput = value)"
+                                 Immediate="true"
+                                 Placeholder="e.g. 10.0.12.7"
+                                 Style="width: 220px; font-family: monospace;" />
+                @if (!string.IsNullOrWhiteSpace(State.ContainsInput))
+                {
+                    @if (!TryParseIPv4(State.ContainsInput.Trim(), out var candidate))
+                    {
+                        <FluentBadge Appearance="Appearance.Neutral">Not a valid IPv4 address</FluentBadge>
+                    }
+                    else if ((candidate & result.Mask) == result.Network)
+                    {
+                        <FluentBadge Appearance="Appearance.Accent">Yes, in @result.Cidr</FluentBadge>
+                    }
+                    else
+                    {
+                        <FluentBadge Appearance="Appearance.Neutral">No, outside @result.Cidr</FluentBadge>
+                    }
+                }
+            </FluentStack>
+        </FluentCard>
+    }
+</FluentStack>
+</div>
+
+@code {
+    private PageState State = null!;
+
+    protected override void OnInitialized()
+    {
+        State = Store.Get<PageState>(out var isNewState);
+        if (isNewState)
+        {
+            OnInputChanged("192.168.1.10/24");
+        }
+    }
+
+    private void OnInputChanged(string value)
+    {
+        State.Input = value;
+        State.ErrorMessage = string.Empty;
+        State.Result = null;
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        var parts = value.Replace('/', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length > 2)
+        {
+            State.ErrorMessage = "Expected an address followed by a prefix length or subnet mask.";
+            return;
+        }
+
+        if (!TryParseIPv4(parts[0], out var address))
+        {
+            State.ErrorMessage = $"'{parts[0]}' is not a valid IPv4 address.";
+            return;
+        }
+
+        var prefixLength = 32;
+        if (parts.Length == 2)
+        {
+            if (parts[1].Contains('.'))
+            {
+                if (!TryParseIPv4(parts[1], out var mask) || !TryMaskToPrefix(mask, out prefixLength))
+                {
+                    State.ErrorMessage = $"'{parts[1]}' is not a valid contiguous subnet mask.";
+                    return;
+                }
+            }
+            else if (!int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out prefixLength) || prefixLength > 32)
+            {
+                State.ErrorMessage = "Prefix length must be between 0 and 32.";
+                return;
+            }
+        }
+
+        State.Result = new CidrResult(address, prefixLength);
+    }
+
+    private static bool TryParseIPv4(string text, out uint value)
+    {
+        value = 0;
+        // IPAddress.TryParse accepts shorthand such as "10.1" so require four dotted parts
+        if (text.Count(c => c == '.') != 3 ||
+            !IPAddress.TryParse(text, out var ip) ||
+            ip.AddressFamily != AddressFamily.InterNetwork)
+        {
+            return false;
+        }
+
+        var bytes = ip.GetAddressBytes();
+        value = (uint)(bytes[0] << 24 | bytes[1] << 16 | bytes[2] << 8 | bytes[3]);
+        return true;
+    }
+
+    private static bool TryMaskToPrefix(uint mask, out int prefixLength)
+    {
+        prefixLength = System.Numerics.BitOperations.PopCount(mask);
+        return mask == PrefixToMask(prefixLength);
+    }
+
+    private static uint PrefixToMask(int prefixLength) => prefixLength == 0 ? 0 : uint.MaxValue << (32 - prefixLength);
+
+    private static string ToDotted(uint value) =>
+        $"{value >> 24}.{(value >> 16) & 0xFF}.{(value >> 8) & 0xFF}.{value & 0xFF}";
+
+    private static string ToBinaryMarkup(uint value, int prefixLength)
+    {
+        var bits = Convert.ToString(value, 2).PadLeft(32, '0');
+        var network = bits[..prefixLength];
+        var host = bits[prefixLength..];
+        var marked = $"<span class=\"cidr-net\">{network}</span>{host}";
+
+        // Insert octet separators, skipping over the markup
+        var result = new System.Text.StringBuilder();
+        var count = 0;
+        var inTag = false;
+        foreach (var c in marked)
+        {
+            if (c == '<') inTag = true;
+            if (!inTag && (c == '0' || c == '1'))
+            {
+                if (count > 0 && count % 8 == 0)
+                {
+                    result.Append('.');
+                }
+
+                count++;
+            }
+
+            result.Append(c);
+            if (c == '>') inTag = false;
+        }
+
+        return result.ToString();
+    }
+
+    private static IEnumerable<(string Label, string Value)> Describe(CidrResult r)
+    {
+        yield return ("CIDR", r.Cidr);
+        yield return ("Network", ToDotted(r.Network));
+        yield return ("Broadcast", r.PrefixLength >= 31 ? "n/a" : ToDotted(r.Broadcast));
+        yield return ("Netmask", ToDotted(r.Mask));
+        yield return ("Wildcard", ToDotted(~r.Mask));
+        yield return ("First host", ToDotted(r.FirstHost));
+        yield return ("Last host", ToDotted(r.LastHost));
+        yield return ("Total addresses", r.TotalAddresses.ToString("N0", CultureInfo.InvariantCulture));
+        yield return ("Usable hosts", r.UsableHosts.ToString("N0", CultureInfo.InvariantCulture));
+        yield return ("Address type", ClassifyAddress(r.Address));
+    }
+
+    private static string ClassifyAddress(uint ip)
+    {
+        bool In(string network, int prefix) => TryParseIPv4(network, out var n) && (ip & PrefixToMask(prefix)) == n;
+
+        return ip switch
+        {
+            _ when In("10.0.0.0", 8) || In("172.16.0.0", 12) || In("192.168.0.0", 16) => "Private (RFC 1918)",
+            _ when In("127.0.0.0", 8) => "Loopback",
+            _ when In("169.254.0.0", 16) => "Link-local",
+            _ when In("100.64.0.0", 10) => "Carrier-grade NAT (RFC 6598)",
+            _ when In("224.0.0.0", 4) => "Multicast",
+            _ when In("0.0.0.0", 8) => "\"This\" network",
+            _ when In("240.0.0.0", 4) => "Reserved",
+            _ => "Public"
+        };
+    }
+
+    private async Task Copy(string text)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    private sealed class CidrResult
+    {
+        public CidrResult(uint address, int prefixLength)
+        {
+            Address = address;
+            PrefixLength = prefixLength;
+            Mask = PrefixToMask(prefixLength);
+            Network = address & Mask;
+            Broadcast = Network | ~Mask;
+        }
+
+        public uint Address { get; }
+        public int PrefixLength { get; }
+        public uint Mask { get; }
+        public uint Network { get; }
+        public uint Broadcast { get; }
+        public string Cidr => $"{ToDotted(Network)}/{PrefixLength}";
+        public ulong TotalAddresses => 1UL << (32 - PrefixLength);
+
+        // /31 point-to-point links (RFC 3021) and /32 single hosts have no network/broadcast reservation
+        public ulong UsableHosts => PrefixLength >= 31 ? TotalAddresses : TotalAddresses - 2;
+        public uint FirstHost => PrefixLength >= 31 ? Network : Network + 1;
+        public uint LastHost => PrefixLength >= 31 ? Broadcast : Broadcast - 1;
+    }
+
+    private sealed class PageState
+    {
+        public string Input = string.Empty;
+        public string ErrorMessage = string.Empty;
+        public string ContainsInput = string.Empty;
+        public CidrResult? Result;
+    }
+}

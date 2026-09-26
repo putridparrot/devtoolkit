@@ -1,0 +1,39 @@
+.nb-field label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+
+.nb-grow {
+    flex: 1;
+    min-width: 240px;
+}
+
+.nb-results {
+    display: grid;
+    grid-template-columns: 110px 1fr auto;
+    gap: 6px 12px;
+    align-items: center;
+    margin: 14px 0 8px;
+}
+
+.nb-label {
+    font-weight: 600;
+}
+
+.nb-value {
+    font-family: monospace;
+    word-break: break-all;
+}
+
+.chmod-grid {
+    display: grid;
+    grid-template-columns: 90px repeat(3, 110px);
+    gap: 8px;
+    align-items: center;
+    margin-top: 12px;
+}
+
+.chmod-head {
+    font-weight: 600;
+}

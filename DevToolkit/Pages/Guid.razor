@@ -2,6 +2,8 @@
 @using DevToolkit.Infrastructure
 @inject IJSRuntime JSRuntime
 @attribute [ToolPage("GUID/UUID", "🧬", "Generate GUIDs in multiple formats including bulk generation.", 8)]
+@using DevToolkit.Services
+@inject ToolStateStore Store
 
 <PageTitle>GUID/UUID</PageTitle>
 
@@ -18,37 +20,37 @@
                 </FluentStack>
 
                 <FluentLabel Style="display: flex; align-items: center; gap: 6px;">
-                    <span><strong>D</strong> (default): @_singleGuidD</span>
-                    @if (HasGuidValue(_singleGuidD))
+                    <span><strong>D</strong> (default): @State.SingleGuidD</span>
+                    @if (HasGuidValue(State.SingleGuidD))
                     {
-                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(_singleGuidD)">
+                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(State.SingleGuidD)">
                             <FluentIcon Icon="Icons.Regular.Size20.Copy" />
                         </FluentButton>
                     }
                 </FluentLabel>
                 <FluentLabel Style="display: flex; align-items: center; gap: 6px;">
-                    <span><strong>N</strong> (digits): @_singleGuidN</span>
-                    @if (HasGuidValue(_singleGuidN))
+                    <span><strong>N</strong> (digits): @State.SingleGuidN</span>
+                    @if (HasGuidValue(State.SingleGuidN))
                     {
-                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(_singleGuidN)">
+                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(State.SingleGuidN)">
                             <FluentIcon Icon="Icons.Regular.Size20.Copy" />
                         </FluentButton>
                     }
                 </FluentLabel>
                 <FluentLabel Style="display: flex; align-items: center; gap: 6px;">
-                    <span><strong>B</strong> (braces): @_singleGuidB</span>
-                    @if (HasGuidValue(_singleGuidB))
+                    <span><strong>B</strong> (braces): @State.SingleGuidB</span>
+                    @if (HasGuidValue(State.SingleGuidB))
                     {
-                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(_singleGuidB)">
+                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(State.SingleGuidB)">
                             <FluentIcon Icon="Icons.Regular.Size20.Copy" />
                         </FluentButton>
                     }
                 </FluentLabel>
                 <FluentLabel Style="display: flex; align-items: center; gap: 6px;">
-                    <span><strong>P</strong> (parentheses): @_singleGuidP</span>
-                    @if (HasGuidValue(_singleGuidP))
+                    <span><strong>P</strong> (parentheses): @State.SingleGuidP</span>
+                    @if (HasGuidValue(State.SingleGuidP))
                     {
-                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(_singleGuidP)">
+                        <FluentButton Appearance="Appearance.Stealth" Style="padding: 2px;" OnClick="() => CopyToClipboard(State.SingleGuidP)">
                             <FluentIcon Icon="Icons.Regular.Size20.Copy" />
                         </FluentButton>
                     }
@@ -62,9 +64,9 @@
 
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; align-items: center; overflow: visible;">
                 <FluentLabel>Count</FluentLabel>
-                <FluentNumberField Value="@_bulkCount" ValueChanged="@((int? v) => _bulkCount = v ?? 10)" Min="1" Max="500" Step="1" Style="width: 120px;" />
+                <FluentNumberField Value="@State.BulkCount" ValueChanged="@((int? v) => State.BulkCount = v ?? 10)" Min="1" Max="500" Step="1" Style="width: 120px;" />
                 <FluentLabel>Format</FluentLabel>
-                <FluentCombobox Items="@_formats" @bind-SelectedOption="_selectedFormat" Style="width: 140px;" Class="readonly-combo">
+                <FluentCombobox Items="@_formats" @bind-SelectedOption="State.SelectedFormat" Style="width: 140px;" Class="readonly-combo">
                     <OptionTemplate>@context</OptionTemplate>
                 </FluentCombobox>
             </FluentStack>
@@ -74,56 +76,55 @@
                 <FluentButton Appearance="Appearance.Outline" OnClick="ClearBulk">Clear</FluentButton>
             </FluentStack>
 
-            <FluentTextArea Value="@_bulkOutput" ValueChanged="@((string v) => _bulkOutput = v)" Rows="12" Style="width: 100%; font-family: monospace;" Placeholder="Generated GUID list appears here..." />
+            <FluentTextArea Value="@State.BulkOutput" ValueChanged="@((string v) => State.BulkOutput = v)" Rows="12" Style="width: 100%; font-family: monospace;" Placeholder="Generated GUID list appears here..." />
         </FluentStack>
     </FluentCard>
 </FluentStack>
 </div>
 
 @code {
-    private string _singleGuidD = "-";
-    private string _singleGuidN = "-";
-    private string _singleGuidB = "-";
-    private string _singleGuidP = "-";
+    private PageState State = null!;
 
-    private int _bulkCount = 10;
+    protected override void OnInitialized()
+    {
+        State = Store.Get<PageState>(out _);
+    }
+
     private readonly List<string> _formats = new() { "D", "N", "B", "P" };
-    private string _selectedFormat = "D";
-    private string _bulkOutput = string.Empty;
 
     private void GenerateSingle()
     {
         var guid = global::System.Guid.NewGuid();
-        _singleGuidD = guid.ToString("D");
-        _singleGuidN = guid.ToString("N");
-        _singleGuidB = guid.ToString("B");
-        _singleGuidP = guid.ToString("P");
+        State.SingleGuidD = guid.ToString("D");
+        State.SingleGuidN = guid.ToString("N");
+        State.SingleGuidB = guid.ToString("B");
+        State.SingleGuidP = guid.ToString("P");
     }
 
     private void ClearSingle()
     {
-        _singleGuidD = "-";
-        _singleGuidN = "-";
-        _singleGuidB = "-";
-        _singleGuidP = "-";
+        State.SingleGuidD = "-";
+        State.SingleGuidN = "-";
+        State.SingleGuidB = "-";
+        State.SingleGuidP = "-";
     }
 
     private void GenerateBulk()
     {
-        var format = string.IsNullOrWhiteSpace(_selectedFormat) ? "D" : _selectedFormat;
-        var lines = new List<string>(_bulkCount);
+        var format = string.IsNullOrWhiteSpace(State.SelectedFormat) ? "D" : State.SelectedFormat;
+        var lines = new List<string>(State.BulkCount);
 
-        for (var i = 0; i < _bulkCount; i++)
+        for (var i = 0; i < State.BulkCount; i++)
         {
             lines.Add(global::System.Guid.NewGuid().ToString(format));
         }
 
-        _bulkOutput = string.Join(Environment.NewLine, lines);
+        State.BulkOutput = string.Join(Environment.NewLine, lines);
     }
 
     private void ClearBulk()
     {
-        _bulkOutput = string.Empty;
+        State.BulkOutput = string.Empty;
     }
 
     private async Task CopyToClipboard(string value)
@@ -139,6 +140,16 @@
         return !string.IsNullOrWhiteSpace(value) && !string.Equals(value, "-", StringComparison.Ordinal);
     }
 
+    private sealed class PageState
+    {
+        public string SingleGuidD = "-";
+        public string SingleGuidN = "-";
+        public string SingleGuidB = "-";
+        public string SingleGuidP = "-";
+        public int BulkCount = 10;
+        public string SelectedFormat = "D";
+        public string BulkOutput = string.Empty;
+    }
 }
 
 <style>
@@ -154,61 +165,3 @@
     }
 
 </style>
-
-
-<script>
-(function () {
-    const allowedKeys = new Set(['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Tab', 'Enter', 'Escape']);
-
-    const blockInput = (event) => {
-        if (event.type === 'beforeinput') {
-            event.preventDefault();
-            return;
-        }
-
-        if (event.type === 'keydown') {
-            if (event.key && (event.key.length === 1 || !allowedKeys.has(event.key))) {
-                event.preventDefault();
-            }
-        }
-    };
-
-    const applyReadOnly = (combo) => {
-        if (!combo || combo.__readonlyApplied) {
-            return;
-        }
-
-        combo.__readonlyApplied = true;
-
-        const ensureInputState = () => {
-            const input = combo.shadowRoot?.querySelector('input');
-            if (!input) {
-                return;
-            }
-
-            if (!input.hasAttribute('readonly')) {
-                input.setAttribute('readonly', 'readonly');
-            }
-
-            input.addEventListener('beforeinput', blockInput);
-            input.addEventListener('keydown', blockInput);
-        };
-
-        ensureInputState();
-
-        if (combo.shadowRoot) {
-            const shadowObserver = new MutationObserver(ensureInputState);
-            shadowObserver.observe(combo.shadowRoot, { childList: true, subtree: true });
-        }
-    };
-
-    const initializeAll = () => {
-        document.querySelectorAll('fluent-combobox.readonly-combo').forEach(applyReadOnly);
-    };
-
-    initializeAll();
-
-    const domObserver = new MutationObserver(initializeAll);
-    domObserver.observe(document.body, { childList: true, subtree: true });
-})();
-</script>

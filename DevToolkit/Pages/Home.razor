@@ -1,6 +1,5 @@
 ﻿@page "/"
 @using DevToolkit.Infrastructure
-@inject NavigationManager NavigationManager
 
 <PageTitle>Home</PageTitle>
 
@@ -19,11 +18,12 @@
             <div class="tools-grid">
                 @foreach (var tool in ToolRegistry.Tools)
                 {
-                    var route = tool.Route;
-                    <FluentCard Class="tool-card" @onclick="() => NavigationManager.NavigateTo(route)">
-                        <FluentLabel Typo="Typography.Body" Weight="FontWeight.Bold">@tool.Icon @tool.Name</FluentLabel>
-                        <FluentLabel>@tool.Description</FluentLabel>
-                    </FluentCard>
+                    <a href="@tool.Route" class="tool-card-link">
+                        <FluentCard Class="tool-card">
+                            <FluentLabel Typo="Typography.Body" Weight="FontWeight.Bold">@tool.Icon @tool.Name</FluentLabel>
+                            <FluentLabel>@tool.Description</FluentLabel>
+                        </FluentCard>
+                    </a>
                 }
             </div>
         </FluentStack>

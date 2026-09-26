@@ -1,0 +1,229 @@
+@page "/url"
+@attribute [ToolPage("URL Parser", "🔗", "Break a URL into its parts, edit query parameters, and rebuild it.", 18)]
+@using DevToolkit.Services
+@inject ToolStateStore Store
+@using System.Text
+@using DevToolkit.Infrastructure
+@inject IJSRuntime JS
+
+<PageTitle>URL Parser</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
+    <FluentLabel Typo="Typography.PageTitle">URL Parser &amp; Builder</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
+            <FluentLabel Typo="Typography.Subject">URL</FluentLabel>
+            <FluentTextField Value="@State.Input"
+                             ValueChanged="@((string value) => OnInputChanged(value))"
+                             Immediate="true"
+                             Placeholder="https://user@example.com:8080/path?key=value#section"
+                             Style="width: 100%; font-family: monospace;" />
+            @if (!string.IsNullOrWhiteSpace(State.ErrorMessage))
+            {
+                <FluentMessageBar Intent="MessageIntent.Error">@State.ErrorMessage</FluentMessageBar>
+            }
+        </FluentStack>
+    </FluentCard>
+
+    @if (State.IsParsed)
+    {
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Components</FluentLabel>
+            <div class="url-grid">
+                <label>Scheme</label>
+                <FluentTextField Value="@State.Scheme" ValueChanged="@((string v) => State.Scheme = v)" Immediate="true" />
+                <label>User info</label>
+                <FluentTextField Value="@State.UserInfo" ValueChanged="@((string v) => State.UserInfo = v)" Immediate="true" />
+                <label>Host</label>
+                <FluentTextField Value="@State.Host" ValueChanged="@((string v) => State.Host = v)" Immediate="true" />
+                <label>Port</label>
+                <FluentTextField Value="@State.Port" ValueChanged="@((string v) => State.Port = v)" Immediate="true" Placeholder="(default)" />
+                <label>Path</label>
+                <FluentTextField Value="@State.Path" ValueChanged="@((string v) => State.Path = v)" Immediate="true" />
+                <label>Fragment</label>
+                <FluentTextField Value="@State.Fragment" ValueChanged="@((string v) => State.Fragment = v)" Immediate="true" />
+            </div>
+            @if (DecodedPath != State.Path)
+            {
+                <FluentLabel Style="font-size: 0.85rem; opacity: 0.8; margin-top: 8px;">Decoded path: <code>@DecodedPath</code></FluentLabel>
+            }
+        </FluentCard>
+
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Query parameters (@State.Parameters.Count)</FluentLabel>
+            <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">Values are shown decoded and re-encoded when the URL is rebuilt.</FluentLabel>
+            <div class="url-params">
+                @foreach (var parameter in State.Parameters)
+                {
+                    <div class="url-param-row">
+                        <FluentTextField Value="@parameter.Key" ValueChanged="@((string v) => parameter.Key = v)" Immediate="true" Placeholder="key" />
+                        <FluentTextField Value="@parameter.Value" ValueChanged="@((string v) => parameter.Value = v)" Immediate="true" Placeholder="value" />
+                        <FluentButton Appearance="Appearance.Stealth" OnClick="() => State.Parameters.Remove(parameter)" Title="Remove parameter">✕</FluentButton>
+                    </div>
+                }
+            </div>
+            <FluentButton Appearance="Appearance.Outline" OnClick="AddParameter" Style="margin-top: 10px;">Add parameter</FluentButton>
+        </FluentCard>
+
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Rebuilt URL</FluentLabel>
+            <pre class="url-output">@RebuiltUrl</pre>
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="CopyRebuiltUrl">Copy URL</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="UseRebuiltUrl">Use as input</FluentButton>
+            </FluentStack>
+        </FluentCard>
+    }
+</FluentStack>
+</div>
+
+@code {
+    private PageState State = null!;
+
+    protected override void OnInitialized()
+    {
+        State = Store.Get<PageState>(out var isNewState);
+        if (isNewState)
+        {
+            OnInputChanged("https://user@example.com:8080/api/items?page=2&tag=a&tag=b&q=hello%20world#results");
+        }
+    }
+
+    private string DecodedPath => SafeUnescape(State.Path);
+
+    private string RebuiltUrl
+    {
+        get
+        {
+            var builder = new StringBuilder();
+            builder.Append(State.Scheme).Append("://");
+            if (!string.IsNullOrEmpty(State.UserInfo))
+            {
+                builder.Append(State.UserInfo).Append('@');
+            }
+
+            builder.Append(State.Host);
+            if (!string.IsNullOrWhiteSpace(State.Port))
+            {
+                builder.Append(':').Append(State.Port.Trim());
+            }
+
+            builder.Append(State.Path);
+
+            var query = string.Join('&', State.Parameters
+                .Where(p => !string.IsNullOrEmpty(p.Key) || !string.IsNullOrEmpty(p.Value))
+                .Select(p => p.HasValue || !string.IsNullOrEmpty(p.Value)
+                    ? $"{Uri.EscapeDataString(p.Key)}={Uri.EscapeDataString(p.Value)}"
+                    : Uri.EscapeDataString(p.Key)));
+            if (query.Length > 0)
+            {
+                builder.Append('?').Append(query);
+            }
+
+            if (!string.IsNullOrEmpty(State.Fragment))
+            {
+                builder.Append('#').Append(State.Fragment);
+            }
+
+            return builder.ToString();
+        }
+    }
+
+    private void OnInputChanged(string value)
+    {
+        State.Input = value;
+        State.ErrorMessage = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            State.IsParsed = false;
+            return;
+        }
+
+        if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri))
+        {
+            State.ErrorMessage = "Not a valid absolute URL (include the scheme, e.g. https://).";
+            State.IsParsed = false;
+            return;
+        }
+
+        State.Scheme = uri.Scheme;
+        State.UserInfo = uri.UserInfo;
+        State.Host = uri.Host;
+        State.Port = uri.IsDefaultPort ? string.Empty : uri.Port.ToString();
+        State.Path = uri.AbsolutePath;
+        State.Fragment = uri.Fragment.TrimStart('#');
+        State.Parameters.Clear();
+        State.Parameters.AddRange(ParseQuery(uri.Query));
+        State.IsParsed = true;
+    }
+
+    private static IEnumerable<QueryParameter> ParseQuery(string query)
+    {
+        foreach (var pair in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = pair.IndexOf('=');
+            yield return separator < 0
+                ? new QueryParameter { Key = DecodeComponent(pair) }
+                : new QueryParameter
+                {
+                    Key = DecodeComponent(pair[..separator]),
+                    Value = DecodeComponent(pair[(separator + 1)..]),
+                    HasValue = true
+                };
+        }
+    }
+
+    // Query strings commonly use '+' for spaces (form encoding)
+    private static string DecodeComponent(string value) => SafeUnescape(value.Replace('+', ' '));
+
+    private static string SafeUnescape(string value)
+    {
+        try
+        {
+            return Uri.UnescapeDataString(value);
+        }
+        catch (UriFormatException)
+        {
+            return value;
+        }
+    }
+
+    private void AddParameter()
+    {
+        State.Parameters.Add(new QueryParameter { HasValue = true });
+    }
+
+    private void UseRebuiltUrl()
+    {
+        OnInputChanged(RebuiltUrl);
+    }
+
+    private async Task CopyRebuiltUrl()
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", RebuiltUrl);
+    }
+
+    private sealed class QueryParameter
+    {
+        public string Key { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
+        public bool HasValue { get; set; }
+    }
+
+    private sealed class PageState
+    {
+        public string Input = string.Empty;
+        public string ErrorMessage = string.Empty;
+        public bool IsParsed;
+        public string Scheme = string.Empty;
+        public string UserInfo = string.Empty;
+        public string Host = string.Empty;
+        public string Port = string.Empty;
+        public string Path = string.Empty;
+        public string Fragment = string.Empty;
+        public readonly List<QueryParameter> Parameters = new();
+    }
+}

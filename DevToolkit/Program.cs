@@ -18,6 +18,7 @@ public class Program
 
         builder.Services.AddScoped<ISettingsService, SettingsService>();
         builder.Services.AddSingleton<IThemeService, ThemeService>();
+        builder.Services.AddScoped<ToolStateStore>();
 
         await builder.Build().RunAsync();
     }

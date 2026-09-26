@@ -1,5 +1,7 @@
 @page "/cron"
 @attribute [ToolPage("Cron", "⏱️", "Validate cron expressions, explore time zones, and preview upcoming run times.", 7)]
+@using DevToolkit.Services
+@inject ToolStateStore Store
 @using DevToolkit.Infrastructure
 @using NCrontab
 @using System.Globalization
@@ -14,12 +16,12 @@
     <FluentCard Style="padding: 20px;">
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 10px;">
             <FluentLabel Typo="Typography.Subject">Cron Expression</FluentLabel>
-            <FluentTextField Value="@_cronExpression"
+            <FluentTextField Value="@State.CronExpression"
                              ValueChanged="@((string value) => OnCronChanged(value))"
                              Placeholder="e.g. */5 * * * *"
                              Style="width: 100%;" />
 
-            <FluentLabel Style="font-size: 0.875rem; opacity: 0.8;">Format: minute hour day month day-of-week (5 fields)</FluentLabel>
+            <FluentLabel Style="font-size: 0.875rem; opacity: 0.8;">Format: minute hour day month day-of-week (5 fields), or a macro such as @@daily. Follows Kubernetes CronJob schedule rules.</FluentLabel>
 
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; flex-wrap: wrap;">
                 <FluentButton Appearance="Appearance.Accent" OnClick="EvaluateCron">Evaluate</FluentButton>
@@ -36,8 +38,8 @@
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; flex-wrap: wrap; align-items: flex-end;">
                 <div class="cron-field">
                     <label>Time zone</label>
-                    <FluentCombobox Items="@_timeZoneOptions"
-                                    SelectedOption="@_selectedTimeZoneId"
+                    <FluentCombobox Items="@State.TimeZoneOptions"
+                                    SelectedOption="@State.SelectedTimeZoneId"
                                     SelectedOptionChanged="@((string? zone) => OnTimeZoneChanged(zone))"
                                     Style="min-width: 240px;"
                                     Class="readonly-combo">
@@ -50,7 +52,7 @@
                 </div>
                 <div class="cron-field">
                     <label>Occurrences</label>
-                    <FluentNumberField Value="@_occurrenceCount"
+                    <FluentNumberField Value="@State.OccurrenceCount"
                                        ValueChanged="@((int? value) => OnOccurrenceChanged(value))"
                                        Min="1"
                                        Max="50"
@@ -63,20 +65,20 @@
         </FluentStack>
     </FluentCard>
 
-    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    @if (!string.IsNullOrWhiteSpace(State.ErrorMessage))
     {
-        <FluentMessageBar Intent="MessageIntent.Error">@_errorMessage</FluentMessageBar>
+        <FluentMessageBar Intent="MessageIntent.Error">@State.ErrorMessage</FluentMessageBar>
     }
 
-    @if (_nextRuns.Any())
+    @if (State.NextRuns.Any())
     {
         <FluentCard Style="padding: 20px;">
             <FluentLabel Typo="Typography.Subject">Human Summary</FluentLabel>
-            <p class="cron-summary">@_humanSummary</p>
+            <p class="cron-summary">@State.HumanSummary</p>
             <FluentDivider Style="margin: 12px 0;" />
             <FluentLabel Typo="Typography.Body">Field breakdown</FluentLabel>
             <ul class="cron-breakdown-list">
-                @foreach (var field in _fieldBreakdown)
+                @foreach (var field in State.FieldBreakdown)
                 {
                     <li><strong>@field.Field:</strong> <code>@field.Raw</code> - @field.Explanation</li>
                 }
@@ -85,9 +87,9 @@
 
         <FluentCard Style="padding: 20px;">
             <FluentLabel Typo="Typography.Subject">Next Runs</FluentLabel>
-            <FluentDataGrid Items="@_nextRuns.AsQueryable()" GridTemplateColumns="70px 2fr 2fr 1fr" Style="margin-top: 12px;">
+            <FluentDataGrid Items="@State.NextRuns.AsQueryable()" GridTemplateColumns="70px 2fr 2fr 1fr" Style="margin-top: 12px;">
                 <PropertyColumn Property="@(r => r.Index)" Title="#" />
-                <PropertyColumn Property="@(r => r.LocalTime)" Title="@($"Local ({_selectedTimeZoneId})")" />
+                <PropertyColumn Property="@(r => r.LocalTime)" Title="@($"Local ({State.SelectedTimeZoneId})")" />
                 <PropertyColumn Property="@(r => r.UtcTime)" Title="UTC" />
                 <PropertyColumn Property="@(r => r.GapToPrevious)" Title="Gap" />
             </FluentDataGrid>
@@ -102,7 +104,7 @@
                         <li>Minute (0-59)</li>
                         <li>Hour (0-23)</li>
                         <li>Day of month (1-31)</li>
-                        <li>Month (1-12)</li>
+                        <li>Month (1-12 or JAN-DEC)</li>
                         <li>Day of week (0-6 or SUN-SAT)</li>
                     </ul>
                 </div>
@@ -110,10 +112,19 @@
                     <FluentLabel Typo="Typography.Body">Special syntax</FluentLabel>
                     <ul>
                         <li>* - every value</li>
+                        <li>? - same as *</li>
                         <li>*/n - every n units</li>
                         <li>a,b - specific values</li>
                         <li>a-b - inclusive range</li>
                         <li>a-b/n - stepped range</li>
+                    </ul>
+                </div>
+                <div>
+                    <FluentLabel Typo="Typography.Body">Kubernetes CronJob</FluentLabel>
+                    <ul>
+                        <li>@@hourly, @@daily / @@midnight, @@weekly, @@monthly, @@yearly / @@annually</li>
+                        <li>If day of month and day of week are both set, either one matching triggers a run</li>
+                        <li>CRON_TZ= / TZ= not allowed - use .spec.timeZone</li>
                     </ul>
                 </div>
                 <div>
@@ -132,37 +143,36 @@
 </div>
 
 @code {
-    private string _cronExpression = "*/5 * * * *";
-    private string _errorMessage = string.Empty;
-    private readonly List<CronRun> _nextRuns = new();
-    private readonly List<CronFieldBreakdown> _fieldBreakdown = new();
-    private string _humanSummary = string.Empty;
-    private List<string> _timeZoneOptions = new();
-    private string _selectedTimeZoneId = TimeZoneInfo.Local.Id;
-    private DateTime _referencePoint = DateTime.Now;
-    private int _occurrenceCount = 10;
-    private string _referenceInput => _referencePoint.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
+    private PageState State = null!;
+
+    private string _referenceInput => State.ReferencePoint.ToString("yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture);
 
     protected override void OnInitialized()
     {
-        _timeZoneOptions = TimeZoneInfo.GetSystemTimeZones()
+        State = Store.Get<PageState>(out var isNewState);
+        if (!isNewState)
+        {
+            return;
+        }
+
+        State.TimeZoneOptions = TimeZoneInfo.GetSystemTimeZones()
             .Select(tz => tz.Id)
             .ToList();
-        _selectedTimeZoneId = TimeZoneInfo.Local.Id;
-        _referencePoint = DateTime.Now;
+        State.SelectedTimeZoneId = TimeZoneInfo.Local.Id;
+        State.ReferencePoint = DateTime.Now;
         EvaluateCron();
     }
 
     private void OnCronChanged(string value)
     {
-        _cronExpression = value;
+        State.CronExpression = value;
     }
 
     private void OnTimeZoneChanged(string? zoneId)
     {
         if (!string.IsNullOrEmpty(zoneId))
         {
-            _selectedTimeZoneId = zoneId;
+            State.SelectedTimeZoneId = zoneId;
             EvaluateCron();
         }
     }
@@ -171,43 +181,40 @@
     {
         if (args.Value is string raw && DateTime.TryParseExact(raw, "yyyy-MM-ddTHH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
         {
-            _referencePoint = DateTime.SpecifyKind(parsed, DateTimeKind.Unspecified);
+            State.ReferencePoint = DateTime.SpecifyKind(parsed, DateTimeKind.Unspecified);
             EvaluateCron();
         }
     }
 
     private void OnOccurrenceChanged(int? value)
     {
-        _occurrenceCount = Math.Clamp(value ?? 10, 1, 50);
+        State.OccurrenceCount = Math.Clamp(value ?? 10, 1, 50);
         EvaluateCron();
     }
 
     private void SetReferenceNow()
     {
-        _referencePoint = DateTime.Now;
+        State.ReferencePoint = DateTime.Now;
         EvaluateCron();
     }
 
     private void EvaluateCron()
     {
-        _errorMessage = string.Empty;
-        _nextRuns.Clear();
-        _fieldBreakdown.Clear();
-        _humanSummary = string.Empty;
+        State.ErrorMessage = string.Empty;
+        State.NextRuns.Clear();
+        State.FieldBreakdown.Clear();
+        State.HumanSummary = string.Empty;
 
         try
         {
-            var schedule = CrontabSchedule.Parse(_cronExpression);
+            var fields = NormalizeExpression(State.CronExpression);
             var timeZone = ResolveTimeZone();
 
-            var localReference = DateTime.SpecifyKind(_referencePoint, DateTimeKind.Unspecified);
+            var localReference = DateTime.SpecifyKind(State.ReferencePoint, DateTimeKind.Unspecified);
             var referenceUtc = TimeZoneInfo.ConvertTimeToUtc(localReference, timeZone);
             var horizonUtc = referenceUtc.AddYears(1);
 
-            var occurrences = schedule
-                .GetNextOccurrences(referenceUtc, horizonUtc)
-                .Take(_occurrenceCount)
-                .ToList();
+            var occurrences = GetNextOccurrences(fields, referenceUtc, horizonUtc, State.OccurrenceCount);
 
             DateTime? previous = null;
             for (var i = 0; i < occurrences.Count; i++)
@@ -216,7 +223,7 @@
                 var localized = TimeZoneInfo.ConvertTimeFromUtc(utc, timeZone);
                 var localOffset = new DateTimeOffset(localized, timeZone.GetUtcOffset(localized));
 
-                _nextRuns.Add(new CronRun
+                State.NextRuns.Add(new CronRun
                 {
                     Index = i + 1,
                     LocalTime = localOffset.ToString("yyyy-MM-dd HH:mm:ss (zzz)", CultureInfo.InvariantCulture),
@@ -227,20 +234,110 @@
                 previous = utc;
             }
 
-            _humanSummary = BuildHumanSummary(_cronExpression, timeZone);
-            _fieldBreakdown.AddRange(BuildFieldBreakdown(_cronExpression));
+            var normalized = string.Join(' ', fields);
+            State.HumanSummary = BuildHumanSummary(normalized, timeZone);
+            if (!string.Equals(normalized, State.CronExpression.Trim(), StringComparison.Ordinal))
+            {
+                State.HumanSummary = $"Equivalent to \"{normalized}\". {State.HumanSummary}";
+            }
+
+            if (IsDayMatchUnion(fields))
+            {
+                State.HumanSummary += " Runs when either the day of month or the day of week matches.";
+            }
+
+            State.FieldBreakdown.AddRange(BuildFieldBreakdown(normalized));
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Invalid cron expression: {ex.Message}";
+            State.ErrorMessage = $"Invalid cron expression: {ex.Message}";
         }
+    }
+
+    // Kubernetes CronJob schedules are parsed by robfig/cron (standard 5-field parser), which differs from NCrontab:
+    // it accepts @-macros and '?' and rejects CRON_TZ/TZ prefixes (use .spec.timeZone instead).
+    private static readonly Dictionary<string, string> Macros = new(StringComparer.Ordinal)
+    {
+        ["@yearly"] = "0 0 1 1 *",
+        ["@annually"] = "0 0 1 1 *",
+        ["@monthly"] = "0 0 1 * *",
+        ["@weekly"] = "0 0 * * 0",
+        ["@daily"] = "0 0 * * *",
+        ["@midnight"] = "0 0 * * *",
+        ["@hourly"] = "0 * * * *"
+    };
+
+    private static string[] NormalizeExpression(string expression)
+    {
+        var trimmed = expression.Trim();
+
+        if (trimmed.StartsWith("CRON_TZ=", StringComparison.Ordinal) || trimmed.StartsWith("TZ=", StringComparison.Ordinal))
+        {
+            throw new FormatException("Kubernetes does not allow CRON_TZ or TZ in the schedule. Set .spec.timeZone instead (use the Time zone setting below).");
+        }
+
+        if (trimmed.StartsWith('@'))
+        {
+            if (trimmed.StartsWith("@every", StringComparison.Ordinal))
+            {
+                throw new FormatException("@every is not part of the Kubernetes CronJob schedule syntax.");
+            }
+
+            if (!Macros.TryGetValue(trimmed, out var macro))
+            {
+                throw new FormatException($"Unknown macro '{trimmed}'. Supported: {string.Join(", ", Macros.Keys)}.");
+            }
+
+            trimmed = macro;
+        }
+
+        var fields = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (fields.Length != 5)
+        {
+            throw new FormatException($"Expected 5 fields (minute hour day month day-of-week) but found {fields.Length}.");
+        }
+
+        // '?' is equivalent to '*'
+        return fields.Select(f => string.Join(',', f.Split(',').Select(ReplaceQuestionMark))).ToArray();
+
+        static string ReplaceQuestionMark(string part) =>
+            part == "?" || part.StartsWith("?/", StringComparison.Ordinal) ? "*" + part[1..] : part;
+    }
+
+    // As with standard cron, when both day of month and day of week are restricted (neither starts with '*')
+    // a day matches if EITHER field matches. NCrontab requires both, so the two cases are evaluated separately.
+    private static bool IsDayMatchUnion(string[] fields) => !IsStarField(fields[2]) && !IsStarField(fields[4]);
+
+    private static bool IsStarField(string field) => field.Split(',').Any(part => part.Split('/')[0] == "*");
+
+    private static List<DateTime> GetNextOccurrences(string[] fields, DateTime startUtc, DateTime endUtc, int count)
+    {
+        IEnumerable<DateTime> Next(string[] f) =>
+            CrontabSchedule.Parse(string.Join(' ', f)).GetNextOccurrences(startUtc, endUtc).Take(count);
+
+        if (!IsDayMatchUnion(fields))
+        {
+            return Next(fields).ToList();
+        }
+
+        var byDayOfMonth = (string[])fields.Clone();
+        byDayOfMonth[4] = "*";
+        var byDayOfWeek = (string[])fields.Clone();
+        byDayOfWeek[2] = "*";
+
+        return Next(byDayOfMonth)
+            .Concat(Next(byDayOfWeek))
+            .Distinct()
+            .OrderBy(d => d)
+            .Take(count)
+            .ToList();
     }
 
     private TimeZoneInfo ResolveTimeZone()
     {
         try
         {
-            return TimeZoneInfo.FindSystemTimeZoneById(_selectedTimeZoneId);
+            return TimeZoneInfo.FindSystemTimeZoneById(State.SelectedTimeZoneId);
         }
         catch
         {
@@ -380,19 +477,19 @@
 
     private void SetEveryFiveMinutes()
     {
-        _cronExpression = "*/5 * * * *";
+        State.CronExpression = "*/5 * * * *";
         EvaluateCron();
     }
 
     private void SetEveryHour()
     {
-        _cronExpression = "0 * * * *";
+        State.CronExpression = "0 * * * *";
         EvaluateCron();
     }
 
     private void SetDailyMidnight()
     {
-        _cronExpression = "0 0 * * *";
+        State.CronExpression = "0 0 * * *";
         EvaluateCron();
     }
 
@@ -405,4 +502,17 @@
     }
 
     private sealed record CronFieldBreakdown(string Field, string Raw, string Explanation);
+
+    private sealed class PageState
+    {
+        public string CronExpression = "*/5 * * * *";
+        public string ErrorMessage = string.Empty;
+        public readonly List<CronRun> NextRuns = new();
+        public readonly List<CronFieldBreakdown> FieldBreakdown = new();
+        public string HumanSummary = string.Empty;
+        public List<string> TimeZoneOptions = new();
+        public string SelectedTimeZoneId = TimeZoneInfo.Local.Id;
+        public DateTime ReferencePoint = DateTime.Now;
+        public int OccurrenceCount = 10;
+    }
 }
