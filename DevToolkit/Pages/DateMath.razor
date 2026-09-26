@@ -103,7 +103,7 @@
                     </div>
                 </FluentStack>
                 <FluentStack Orientation="Orientation.Horizontal" Style="gap: 8px; flex-wrap: wrap; align-items: center;">
-                    <FluentCheckbox @bind-Checked="State.OffsetInvert">Subtract instead</FluentCheckbox>
+                    <FluentCheckbox @bind-Value="State.OffsetInvert">Subtract instead</FluentCheckbox>
                     <FluentButton Appearance="Appearance.Accent" OnClick="ApplyOffset">Apply offset</FluentButton>
                     <FluentButton Appearance="Appearance.Outline" OnClick="ResetOffset">Reset</FluentButton>
                 </FluentStack>

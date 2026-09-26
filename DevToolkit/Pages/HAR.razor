@@ -5,6 +5,7 @@
 @using System.Text.Json
 @using DevToolkit.Infrastructure
 @using DevToolkit.Services
+@using DevToolkit.Services.Har
 @using Microsoft.JSInterop
 @inject IJSRuntime JS
 @inject ToolStateStore Store
@@ -64,17 +65,22 @@
                         <OptionTemplate>@context</OptionTemplate>
                     </FluentCombobox>
                 </div>
-                <FluentCheckbox Checked="@State.OnlyErrors" CheckedChanged="@((bool value) => OnOnlyErrorsChanged(value))">Only errors</FluentCheckbox>
+                <FluentCheckbox Value="@State.OnlyErrors" ValueChanged="@((bool value) => OnOnlyErrorsChanged(value))">Only errors</FluentCheckbox>
+                <FluentCheckbox Value="@State.HideNoise"
+                                ValueChanged="@((bool value) => OnHideNoiseChanged(value))"
+                                Title="Hides successful static assets, telemetry, cached responses and CORS preflights. Failed requests are always shown.">
+                    Hide noise (@State.NoiseCount)
+                </FluentCheckbox>
             </div>
 
             <FluentDivider Style="margin: 16px 0;" />
 
             <FluentLabel Typo="Typography.Body" Class="har-section-label">Sanitizer options</FluentLabel>
             <div class="har-sanitizer-grid">
-                <FluentCheckbox Checked="@State.StripQuery" CheckedChanged="@((bool value) => ToggleStripQuery(value))">Strip query string</FluentCheckbox>
-                <FluentCheckbox Checked="@State.RedactAuth" CheckedChanged="@((bool value) => ToggleRedactAuth(value))">Redact Authorization</FluentCheckbox>
-                <FluentCheckbox Checked="@State.RedactCookies" CheckedChanged="@((bool value) => ToggleRedactCookies(value))">Redact cookies</FluentCheckbox>
-                <FluentCheckbox Checked="@State.RedactBodies" CheckedChanged="@((bool value) => ToggleRedactBodies(value))">Redact bodies</FluentCheckbox>
+                <FluentCheckbox Value="@State.StripQuery" ValueChanged="@((bool value) => ToggleStripQuery(value))">Strip query string</FluentCheckbox>
+                <FluentCheckbox Value="@State.RedactAuth" ValueChanged="@((bool value) => ToggleRedactAuth(value))">Redact Authorization</FluentCheckbox>
+                <FluentCheckbox Value="@State.RedactCookies" ValueChanged="@((bool value) => ToggleRedactCookies(value))">Redact cookies</FluentCheckbox>
+                <FluentCheckbox Value="@State.RedactBodies" ValueChanged="@((bool value) => ToggleRedactBodies(value))">Redact bodies</FluentCheckbox>
             </div>
 
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; margin-top: 12px; flex-wrap: wrap;">
@@ -110,6 +116,45 @@
                     <span class="summary-label">4xx/5xx</span>
                     <span class="summary-value">@State.Entries.Count(e => e.Status >= 400)</span>
                 </div>
+                <div>
+                    <span class="summary-label">No response</span>
+                    <span class="summary-value">@State.Entries.Count(e => e.Status == 0)</span>
+                </div>
+            </div>
+        </FluentCard>
+
+        <FluentCard Style="padding: 20px;">
+            <FluentLabel Typo="Typography.Subject">Insights (@State.Findings.Count)</FluentLabel>
+            <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">Rule-based hints about likely causes. They point you where to look; they aren't proof.</FluentLabel>
+            @if (State.Findings.Count == 0)
+            {
+                <FluentLabel Typo="Typography.Body" Style="margin-top: 10px;">No issues detected.</FluentLabel>
+            }
+            <div class="har-findings">
+                @foreach (var finding in State.Findings)
+                {
+                    <div class="har-finding @GetFindingClass(finding.Severity)">
+                        <div class="har-finding-title">@GetFindingIcon(finding.Severity) @finding.Title</div>
+                        <div class="har-finding-detail">@finding.Detail</div>
+                        @if (finding.Evidence.Count > 0)
+                        {
+                            <div class="har-finding-evidence">
+                                @foreach (var entry in finding.Evidence.Take(MaxEvidence))
+                                {
+                                    <FluentButton Appearance="Appearance.Lightweight"
+                                                  OnClick="() => SelectEntry(entry)"
+                                                  Title="Inspect this request">
+                                        @FormatEvidence(entry)
+                                    </FluentButton>
+                                }
+                                @if (finding.Evidence.Count > MaxEvidence)
+                                {
+                                    <span class="har-finding-more">and @(finding.Evidence.Count - MaxEvidence) more</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
             </div>
         </FluentCard>
 
@@ -141,6 +186,19 @@
                 <FluentStack Orientation="Orientation.Vertical" Style="gap: 6px; margin-top: 10px;">
                     <FluentLabel Style="font-weight: 600;">@State.SelectedEntry.Method @SanitizeUrl(State.SelectedEntry.Url)</FluentLabel>
                     <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">Status @State.SelectedEntry.Status (@State.SelectedEntry.StatusText) | @State.SelectedEntry.Time ms | @State.SelectedEntry.MimeType</FluentLabel>
+                    @if (!string.IsNullOrEmpty(State.SelectedEntry.Error) || !string.IsNullOrEmpty(State.SelectedEntry.ServerIpAddress))
+                    {
+                        <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">
+                            @if (!string.IsNullOrEmpty(State.SelectedEntry.Error))
+                            {
+                                <span class="status-error">@State.SelectedEntry.Error</span>
+                            }
+                            @if (!string.IsNullOrEmpty(State.SelectedEntry.ServerIpAddress))
+                            {
+                                <span> Server IP @State.SelectedEntry.ServerIpAddress</span>
+                            }
+                        </FluentLabel>
+                    }
                 </FluentStack>
 
                 <FluentTabs Style="margin-top: 16px;">
@@ -262,80 +320,26 @@
         State.CurlPreview = string.Empty;
         State.MethodOptions.Clear();
         State.MethodOptions.Add("All");
+        State.Findings.Clear();
+        State.NoiseCount = 0;
 
         try
         {
-            using var document = JsonDocument.Parse(State.HarContent);
-            var root = document.RootElement;
+            State.Entries.AddRange(HarParser.Parse(State.HarContent));
 
-            if (root.TryGetProperty("log", out var log) &&
-                log.TryGetProperty("entries", out var entriesElement))
+            foreach (var method in State.Entries.Select(e => e.Method).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(m => m))
             {
-                foreach (var entry in entriesElement.EnumerateArray())
-                {
-                    var request = entry.GetProperty("request");
-                    var response = entry.GetProperty("response");
-
-                    var harEntry = new HarEntry
-                    {
-                        Method = request.GetProperty("method").GetString() ?? string.Empty,
-                        Url = request.GetProperty("url").GetString() ?? string.Empty,
-                        Status = response.GetProperty("status").GetInt32(),
-                        StatusText = response.TryGetProperty("statusText", out var statusText) ? statusText.GetString() : null,
-                        Time = entry.TryGetProperty("time", out var timeElement) ? (int)timeElement.GetDouble() : 0,
-                        MimeType = response.TryGetProperty("content", out var content) && content.TryGetProperty("mimeType", out var mime) ? mime.GetString() ?? string.Empty : string.Empty,
-                        TransferSize = entry.TryGetProperty("_transferSize", out var transfer) ? transfer.GetDouble() : 0
-                    };
-
-                    if (entry.TryGetProperty("startedDateTime", out var startElement) && DateTime.TryParse(startElement.GetString(), out var started))
-                    {
-                        harEntry.StartedDateTime = started;
-                    }
-
-                    if (request.TryGetProperty("headers", out var requestHeaders))
-                    {
-                        foreach (var header in requestHeaders.EnumerateArray())
-                        {
-                            var name = header.TryGetProperty("name", out var nameElement) ? nameElement.GetString() ?? string.Empty : string.Empty;
-                            var value = header.TryGetProperty("value", out var valueElement) ? valueElement.GetString() ?? string.Empty : string.Empty;
-                            harEntry.RequestHeaders.Add(new HarHeader { Name = name, Value = value });
-                        }
-                    }
-
-                    if (response.TryGetProperty("headers", out var responseHeaders))
-                    {
-                        foreach (var header in responseHeaders.EnumerateArray())
-                        {
-                            var name = header.TryGetProperty("name", out var nameElement) ? nameElement.GetString() ?? string.Empty : string.Empty;
-                            var value = header.TryGetProperty("value", out var valueElement) ? valueElement.GetString() ?? string.Empty : string.Empty;
-                            harEntry.ResponseHeaders.Add(new HarHeader { Name = name, Value = value });
-                        }
-                    }
-
-                    if (request.TryGetProperty("postData", out var postData) && postData.TryGetProperty("text", out var requestBody))
-                    {
-                        harEntry.RequestBody = requestBody.GetString();
-                    }
-
-                    if (response.TryGetProperty("content", out var responseContent) && responseContent.TryGetProperty("text", out var responseBody))
-                    {
-                        harEntry.ResponseBody = responseBody.GetString();
-                    }
-
-                    State.Entries.Add(harEntry);
-                }
-
-                foreach (var method in State.Entries.Select(e => e.Method).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(m => m))
-                {
-                    State.MethodOptions.Add(method);
-                }
-
-                ApplyFilters();
+                State.MethodOptions.Add(method);
             }
-            else
-            {
-                State.ErrorMessage = "Invalid HAR format. Could not find 'log.entries' in the JSON.";
-            }
+
+            State.NoiseCount = State.Entries.Count(HarAnalyzer.IsNoise);
+            State.Findings.AddRange(HarAnalyzer.Analyze(State.Entries));
+
+            ApplyFilters();
+        }
+        catch (FormatException ex)
+        {
+            State.ErrorMessage = ex.Message;
         }
         catch (Exception ex)
         {
@@ -364,7 +368,12 @@
 
     private bool MatchesFilters(HarEntry entry)
     {
-        if (State.OnlyErrors && entry.Status < 400)
+        if (State.OnlyErrors && !entry.IsFailure)
+        {
+            return false;
+        }
+
+        if (State.HideNoise && HarAnalyzer.IsNoise(entry))
         {
             return false;
         }
@@ -522,6 +531,12 @@
         ApplyFilters();
     }
 
+    private void OnHideNoiseChanged(bool value)
+    {
+        State.HideNoise = value;
+        ApplyFilters();
+    }
+
     private void OnOnlyErrorsChanged(bool value)
     {
         State.OnlyErrors = value;
@@ -617,6 +632,34 @@
         return "status-error";
     }
 
+    private const int MaxEvidence = 5;
+
+    private static string GetFindingClass(HarFindingSeverity severity) => severity switch
+    {
+        HarFindingSeverity.Error => "har-finding-error",
+        HarFindingSeverity.Warning => "har-finding-warning",
+        _ => "har-finding-info"
+    };
+
+    private static string GetFindingIcon(HarFindingSeverity severity) => severity switch
+    {
+        HarFindingSeverity.Error => "⛔",
+        HarFindingSeverity.Warning => "⚠️",
+        _ => "ℹ️"
+    };
+
+    private string FormatEvidence(HarEntry entry)
+    {
+        var status = entry.Status == 0 ? "ERR" : entry.Status.ToString();
+        var url = SanitizeUrl(entry.Url);
+        if (url.Length > 70)
+        {
+            url = url[..67] + "...";
+        }
+
+        return $"{status} {entry.Method} {url}";
+    }
+
     private sealed class PageState
     {
         public string HarContent = string.Empty;
@@ -635,28 +678,8 @@
         public bool RedactBodies = true;
         public string SanitizedEntryJson = string.Empty;
         public string CurlPreview = string.Empty;
-    }
-
-    private sealed class HarEntry
-    {
-        public string Method { get; set; } = string.Empty;
-        public string Url { get; set; } = string.Empty;
-        public string Host => Uri.TryCreate(Url, UriKind.Absolute, out var uri) ? uri.Host : string.Empty;
-        public int Status { get; set; }
-        public string? StatusText { get; set; }
-        public int Time { get; set; }
-        public string MimeType { get; set; } = string.Empty;
-        public double TransferSize { get; set; }
-        public DateTime StartedDateTime { get; set; }
-        public string? RequestBody { get; set; }
-        public string? ResponseBody { get; set; }
-        public List<HarHeader> RequestHeaders { get; } = new();
-        public List<HarHeader> ResponseHeaders { get; } = new();
-    }
-
-    private sealed class HarHeader
-    {
-        public string Name { get; set; } = string.Empty;
-        public string Value { get; set; } = string.Empty;
+        public bool HideNoise;
+        public int NoiseCount;
+        public readonly List<HarFinding> Findings = new();
     }
 }

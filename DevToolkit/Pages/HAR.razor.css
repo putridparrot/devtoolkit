@@ -29,6 +29,52 @@
     font-weight: 600;
 }
 
+.har-findings {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.har-finding {
+    border-left: 4px solid var(--accent-fill-rest);
+    padding: 8px 12px;
+    background: color-mix(in srgb, currentColor 4%, transparent);
+    border-radius: 4px;
+}
+
+.har-finding-error {
+    border-left-color: #d13438;
+}
+
+.har-finding-warning {
+    border-left-color: #f7a600;
+}
+
+.har-finding-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.har-finding-detail {
+    white-space: pre-line;
+    font-size: 0.9rem;
+}
+
+.har-finding-evidence {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    font-family: monospace;
+}
+
+.har-finding-more {
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
 .har-inspect-button {
     align-self: center;
 }
