@@ -1,4 +1,7 @@
 {
+  "mimeTypes": {
+    ".webmanifest": "application/manifest+json"
+  },
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": [
@@ -7,7 +10,9 @@
       "/js/*",
       "/images/*",
       "/icon-*.png",
-      "/favicon.ico"
+      "/favicon.ico",
+      "/service-worker*.js",
+      "/manifest.webmanifest"
     ]
   }
 }

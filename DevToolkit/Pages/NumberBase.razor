@@ -1,0 +1,415 @@
+@page "/number-base"
+@attribute [ToolPage("Number Base/chmod", "🔢", "Convert between decimal, hex, octal and binary, and calculate Unix file permissions.", 19)]
+@using DevToolkit.Services
+@inject ToolStateStore Store
+@using System.Numerics
+@using System.Text
+@using DevToolkit.Infrastructure
+@inject IJSRuntime JS
+
+<PageTitle>Number Base &amp; chmod</PageTitle>
+
+<div class="page-container">
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 20px; height: 100%;">
+    <FluentLabel Typo="Typography.PageTitle">Number Base &amp; chmod</FluentLabel>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentLabel Typo="Typography.Subject">Number base converter</FluentLabel>
+        <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-top: 10px;">
+            <div class="nb-field nb-grow">
+                <label>Value</label>
+                <FluentTextField Value="@State.NumberInput"
+                                 ValueChanged="@((string value) => OnNumberChanged(value))"
+                                 Immediate="true"
+                                 Placeholder="e.g. 255, 0xFF, 0b1111_1111"
+                                 Style="width: 100%; font-family: monospace;" />
+            </div>
+            <div class="nb-field">
+                <label>Input base</label>
+                <FluentCombobox Items="@_baseOptions"
+                                SelectedOption="@State.InputBase"
+                                SelectedOptionChanged="@((string? value) => OnBaseChanged(value))"
+                                Style="min-width: 160px;"
+                                Class="readonly-combo">
+                    <OptionTemplate>@context</OptionTemplate>
+                </FluentCombobox>
+            </div>
+        </FluentStack>
+        <FluentLabel Style="font-size: 0.85rem; opacity: 0.8; margin-top: 6px;">Prefixes 0x, 0o and 0b override the input base. Underscores and spaces are ignored.</FluentLabel>
+
+        @if (!string.IsNullOrWhiteSpace(State.NumberError))
+        {
+            <FluentMessageBar Intent="MessageIntent.Error" Style="margin-top: 10px;">@State.NumberError</FluentMessageBar>
+        }
+        else if (State.Number is { } number)
+        {
+            <div class="nb-results">
+                @foreach (var (label, text) in FormatAll(number))
+                {
+                    <span class="nb-label">@label</span>
+                    <code class="nb-value">@text</code>
+                    <FluentButton Appearance="Appearance.Stealth" OnClick="() => Copy(text)" Title="Copy">Copy</FluentButton>
+                }
+            </div>
+            <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">@DescribeBits(number)</FluentLabel>
+        }
+    </FluentCard>
+
+    <FluentCard Style="padding: 20px;">
+        <FluentLabel Typo="Typography.Subject">chmod calculator</FluentLabel>
+        <div class="chmod-grid">
+            <span></span>
+            <span class="chmod-head">Read</span>
+            <span class="chmod-head">Write</span>
+            <span class="chmod-head">Execute</span>
+            @for (var who = 0; who < 3; who++)
+            {
+                var row = who;
+                <span class="chmod-head">@_classNames[row]</span>
+                @for (var perm = 0; perm < 3; perm++)
+                {
+                    var bit = 1 << ((2 - row) * 3 + (2 - perm));
+                    <FluentCheckbox Value="@HasBit(bit)" ValueChanged="@((bool on) => SetBit(bit, on))" />
+                }
+            }
+            <span class="chmod-head">Special</span>
+            <FluentCheckbox Value="@HasBit(SetUid)" ValueChanged="@((bool on) => SetBit(SetUid, on))" Label="setuid" />
+            <FluentCheckbox Value="@HasBit(SetGid)" ValueChanged="@((bool on) => SetBit(SetGid, on))" Label="setgid" />
+            <FluentCheckbox Value="@HasBit(Sticky)" ValueChanged="@((bool on) => SetBit(Sticky, on))" Label="sticky" />
+        </div>
+
+        <FluentStack Orientation="Orientation.Horizontal" Style="gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-top: 16px;">
+            <div class="nb-field">
+                <label>Octal</label>
+                <FluentTextField Value="@State.OctalInput"
+                                 ValueChanged="@((string value) => OnOctalChanged(value))"
+                                 Immediate="true"
+                                 Style="width: 120px; font-family: monospace;" />
+            </div>
+            <div class="nb-field">
+                <label>Symbolic</label>
+                <FluentTextField Value="@State.SymbolicInput"
+                                 ValueChanged="@((string value) => OnSymbolicChanged(value))"
+                                 Immediate="true"
+                                 Style="width: 160px; font-family: monospace;" />
+            </div>
+        </FluentStack>
+
+        @if (!string.IsNullOrWhiteSpace(State.ChmodError))
+        {
+            <FluentMessageBar Intent="MessageIntent.Error" Style="margin-top: 10px;">@State.ChmodError</FluentMessageBar>
+        }
+
+        <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; align-items: center; margin-top: 12px;">
+            <code class="nb-value">@ChmodCommand</code>
+            <FluentButton Appearance="Appearance.Stealth" OnClick="() => Copy(ChmodCommand)">Copy</FluentButton>
+        </FluentStack>
+    </FluentCard>
+</FluentStack>
+</div>
+
+@code {
+    private const int SetUid = 0x800;
+    private const int SetGid = 0x400;
+    private const int Sticky = 0x200;
+
+    private readonly List<string> _baseOptions = new() { "Decimal (10)", "Hexadecimal (16)", "Octal (8)", "Binary (2)" };
+    private readonly string[] _classNames = { "Owner", "Group", "Other" };
+
+    private PageState State = null!;
+
+    protected override void OnInitialized()
+    {
+        State = Store.Get<PageState>(out var isNewState);
+        if (isNewState)
+        {
+            OnNumberChanged("255");
+            ApplyMode(Convert.ToInt32("755", 8));
+        }
+    }
+
+    private string ChmodCommand => $"chmod {ToOctalMode(State.Mode)} <file>";
+
+    #region Number base
+
+    private void OnNumberChanged(string value)
+    {
+        State.NumberInput = value;
+        State.NumberError = string.Empty;
+        State.Number = null;
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        if (TryParseNumber(value, BaseFromOption(State.InputBase), out var number, out var error))
+        {
+            State.Number = number;
+        }
+        else
+        {
+            State.NumberError = error;
+        }
+    }
+
+    private void OnBaseChanged(string? value)
+    {
+        State.InputBase = value ?? _baseOptions[0];
+        OnNumberChanged(State.NumberInput);
+    }
+
+    private static int BaseFromOption(string option) => option switch
+    {
+        _ when option.Contains("(16)") => 16,
+        _ when option.Contains("(8)") => 8,
+        _ when option.Contains("(2)") => 2,
+        _ => 10
+    };
+
+    private static bool TryParseNumber(string input, int numberBase, out BigInteger value, out string error)
+    {
+        value = BigInteger.Zero;
+        error = string.Empty;
+
+        var text = input.Replace("_", string.Empty).Replace(" ", string.Empty).Trim();
+        var negative = text.StartsWith('-');
+        if (negative)
+        {
+            text = text[1..];
+        }
+
+        if (text.Length > 2 && text[0] == '0')
+        {
+            var prefixBase = char.ToLowerInvariant(text[1]) switch
+            {
+                'x' => 16,
+                'o' => 8,
+                'b' => 2,
+                _ => 0
+            };
+
+            if (prefixBase != 0)
+            {
+                numberBase = prefixBase;
+                text = text[2..];
+            }
+        }
+
+        if (text.Length == 0)
+        {
+            error = "Enter a number.";
+            return false;
+        }
+
+        foreach (var c in text)
+        {
+            var digit = char.ToLowerInvariant(c) switch
+            {
+                >= '0' and <= '9' => c - '0',
+                >= 'a' and <= 'f' => char.ToLowerInvariant(c) - 'a' + 10,
+                _ => -1
+            };
+
+            if (digit < 0 || digit >= numberBase)
+            {
+                error = $"'{c}' is not a valid base {numberBase} digit.";
+                return false;
+            }
+
+            value = value * numberBase + digit;
+        }
+
+        if (negative)
+        {
+            value = -value;
+        }
+
+        return true;
+    }
+
+    private static IEnumerable<(string Label, string Text)> FormatAll(BigInteger number)
+    {
+        yield return ("Decimal", number.ToString());
+        yield return ("Hexadecimal", FormatInBase(number, 16, "0x", 4));
+        yield return ("Octal", FormatInBase(number, 8, "0o", 0));
+        yield return ("Binary", FormatInBase(number, 2, "0b", 4));
+    }
+
+    private static string FormatInBase(BigInteger number, int numberBase, string prefix, int groupSize)
+    {
+        const string digits = "0123456789ABCDEF";
+        var magnitude = BigInteger.Abs(number);
+        var builder = new StringBuilder();
+
+        do
+        {
+            builder.Insert(0, digits[(int)(magnitude % numberBase)]);
+            magnitude /= numberBase;
+        } while (magnitude > 0);
+
+        var text = builder.ToString();
+        if (groupSize > 0 && text.Length > groupSize)
+        {
+            text = text.PadLeft((text.Length + groupSize - 1) / groupSize * groupSize, '0');
+            text = string.Join(' ', Enumerable.Range(0, text.Length / groupSize).Select(i => text.Substring(i * groupSize, groupSize)));
+        }
+
+        return (number.Sign < 0 ? "-" : string.Empty) + prefix + text;
+    }
+
+    private static string DescribeBits(BigInteger number)
+    {
+        var bits = number.IsZero ? 1 : (int)BigInteger.Abs(number).GetBitLength();
+        var fits = new[] { 8, 16, 32, 64 }.FirstOrDefault(size => bits <= size);
+        return fits > 0
+            ? $"{bits} significant bit(s); fits in {fits}-bit {(number.Sign < 0 ? "signed" : "unsigned")} storage."
+            : $"{bits} significant bit(s).";
+    }
+
+    #endregion
+
+    #region chmod
+
+    private bool HasBit(int bit) => (State.Mode & bit) != 0;
+
+    private void SetBit(int bit, bool on)
+    {
+        ApplyMode(on ? State.Mode | bit : State.Mode & ~bit);
+    }
+
+    private void ApplyMode(int mode)
+    {
+        State.Mode = mode;
+        State.OctalInput = ToOctalMode(mode);
+        State.SymbolicInput = ToSymbolic(mode);
+        State.ChmodError = string.Empty;
+    }
+
+    private void OnOctalChanged(string value)
+    {
+        State.OctalInput = value;
+        var text = value.Trim();
+        if (text.Length is >= 1 and <= 4 && text.All(c => c is >= '0' and <= '7'))
+        {
+            State.Mode = Convert.ToInt32(text, 8);
+            State.SymbolicInput = ToSymbolic(State.Mode);
+            State.ChmodError = string.Empty;
+        }
+        else
+        {
+            State.ChmodError = "Octal mode must be 1-4 digits between 0 and 7 (e.g. 755 or 4755).";
+        }
+    }
+
+    private void OnSymbolicChanged(string value)
+    {
+        State.SymbolicInput = value;
+        if (TryParseSymbolic(value.Trim(), out var mode))
+        {
+            State.Mode = mode;
+            State.OctalInput = ToOctalMode(mode);
+            State.ChmodError = string.Empty;
+        }
+        else
+        {
+            State.ChmodError = "Symbolic mode must be 9 characters like rwxr-xr-x (s/S/t/T allowed for special bits).";
+        }
+    }
+
+    private static string ToOctalMode(int mode) =>
+        (mode & 0xE00) != 0 ? Convert.ToString(mode, 8).PadLeft(4, '0') : Convert.ToString(mode & 0x1FF, 8).PadLeft(3, '0');
+
+    private static string ToSymbolic(int mode)
+    {
+        var chars = new char[9];
+        for (var i = 0; i < 9; i++)
+        {
+            var bit = 1 << (8 - i);
+            chars[i] = (mode & bit) != 0 ? "rwx"[i % 3] : '-';
+        }
+
+        chars[2] = SpecialChar(chars[2], (mode & SetUid) != 0, 's');
+        chars[5] = SpecialChar(chars[5], (mode & SetGid) != 0, 's');
+        chars[8] = SpecialChar(chars[8], (mode & Sticky) != 0, 't');
+        return new string(chars);
+
+        static char SpecialChar(char current, bool special, char letter) =>
+            !special ? current : current == 'x' ? letter : char.ToUpperInvariant(letter);
+    }
+
+    private static bool TryParseSymbolic(string text, out int mode)
+    {
+        mode = 0;
+
+        // Allow a leading file type character, as shown by ls -l (e.g. -rwxr-xr-x or drwxr-xr-x)
+        if (text.Length == 10)
+        {
+            text = text[1..];
+        }
+
+        if (text.Length != 9)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < 9; i++)
+        {
+            var c = text[i];
+            var expected = "rwx"[i % 3];
+            var bit = 1 << (8 - i);
+
+            if (c == expected)
+            {
+                mode |= bit;
+            }
+            else if (i % 3 == 2 && c is 's' or 'S' or 't' or 'T')
+            {
+                var isSticky = char.ToLowerInvariant(c) == 't';
+                var special = i switch
+                {
+                    2 when !isSticky => SetUid,
+                    5 when !isSticky => SetGid,
+                    8 when isSticky => Sticky,
+                    _ => 0
+                };
+
+                if (special == 0)
+                {
+                    return false;
+                }
+
+                mode |= special;
+                if (char.IsLower(c))
+                {
+                    mode |= bit;
+                }
+            }
+            else if (c != '-')
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    #endregion
+
+    private async Task Copy(string text)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+    }
+
+    private sealed class PageState
+    {
+        public string NumberInput = string.Empty;
+        public string InputBase = "Decimal (10)";
+        public BigInteger? Number;
+        public string NumberError = string.Empty;
+        public int Mode;
+        public string OctalInput = string.Empty;
+        public string SymbolicInput = string.Empty;
+        public string ChmodError = string.Empty;
+    }
+}

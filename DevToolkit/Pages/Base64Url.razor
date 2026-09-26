@@ -1,5 +1,7 @@
 @page "/base64-url"
 @attribute [ToolPage("Base64/URL", "🔤", "Encode and decode Base64 and URL strings.", 5)]
+@using DevToolkit.Services
+@inject ToolStateStore Store
 @using System.Text
 @using DevToolkit.Infrastructure
 
@@ -14,8 +16,8 @@
             <FluentTab Label="Base64">
                 <FluentStack Orientation="Orientation.Vertical" Style="gap: 15px; padding: 20px;">
                     <FluentLabel Typo="Typography.Subject">Input</FluentLabel>
-                    <FluentTextArea Value="@_base64Input"
-                                    ValueChanged="@((string value) => _base64Input = value)"
+                    <FluentTextArea Value="@State.Base64Input"
+                                    ValueChanged="@((string value) => State.Base64Input = value)"
                                     Rows="8"
                                     Style="width: 100%; font-family: monospace;" />
 
@@ -25,14 +27,14 @@
                         <FluentButton Appearance="Appearance.Lightweight" OnClick="ClearBase64">Clear</FluentButton>
                     </FluentStack>
 
-                    @if (!string.IsNullOrWhiteSpace(_base64Error))
+                    @if (!string.IsNullOrWhiteSpace(State.Base64Error))
                     {
-                        <FluentMessageBar Intent="MessageIntent.Error">@_base64Error</FluentMessageBar>
+                        <FluentMessageBar Intent="MessageIntent.Error">@State.Base64Error</FluentMessageBar>
                     }
 
                     <FluentLabel Typo="Typography.Subject">Output</FluentLabel>
-                    <FluentTextArea Value="@_base64Output"
-                                    ValueChanged="@((string value) => _base64Output = value)"
+                    <FluentTextArea Value="@State.Base64Output"
+                                    ValueChanged="@((string value) => State.Base64Output = value)"
                                     Rows="8"
                                     Style="width: 100%; font-family: monospace;" />
                 </FluentStack>
@@ -41,8 +43,8 @@
             <FluentTab Label="URL">
                 <FluentStack Orientation="Orientation.Vertical" Style="gap: 15px; padding: 20px;">
                     <FluentLabel Typo="Typography.Subject">Input</FluentLabel>
-                    <FluentTextArea Value="@_urlInput"
-                                    ValueChanged="@((string value) => _urlInput = value)"
+                    <FluentTextArea Value="@State.UrlInput"
+                                    ValueChanged="@((string value) => State.UrlInput = value)"
                                     Rows="8"
                                     Style="width: 100%; font-family: monospace;" />
 
@@ -52,14 +54,14 @@
                         <FluentButton Appearance="Appearance.Lightweight" OnClick="ClearUrl">Clear</FluentButton>
                     </FluentStack>
 
-                    @if (!string.IsNullOrWhiteSpace(_urlError))
+                    @if (!string.IsNullOrWhiteSpace(State.UrlError))
                     {
-                        <FluentMessageBar Intent="MessageIntent.Error">@_urlError</FluentMessageBar>
+                        <FluentMessageBar Intent="MessageIntent.Error">@State.UrlError</FluentMessageBar>
                     }
 
                     <FluentLabel Typo="Typography.Subject">Output</FluentLabel>
-                    <FluentTextArea Value="@_urlOutput"
-                                    ValueChanged="@((string value) => _urlOutput = value)"
+                    <FluentTextArea Value="@State.UrlOutput"
+                                    ValueChanged="@((string value) => State.UrlOutput = value)"
                                     Rows="8"
                                     Style="width: 100%; font-family: monospace;" />
                 </FluentStack>
@@ -70,79 +72,88 @@
 </div>
 
 @code {
-    private string _base64Input = string.Empty;
-    private string _base64Output = string.Empty;
-    private string _base64Error = string.Empty;
+    private PageState State = null!;
 
-    private string _urlInput = string.Empty;
-    private string _urlOutput = string.Empty;
-    private string _urlError = string.Empty;
+    protected override void OnInitialized()
+    {
+        State = Store.Get<PageState>(out _);
+    }
 
     private void EncodeBase64()
     {
-        _base64Error = string.Empty;
+        State.Base64Error = string.Empty;
         try
         {
-            var bytes = Encoding.UTF8.GetBytes(_base64Input);
-            _base64Output = Convert.ToBase64String(bytes);
+            var bytes = Encoding.UTF8.GetBytes(State.Base64Input);
+            State.Base64Output = Convert.ToBase64String(bytes);
         }
         catch (Exception ex)
         {
-            _base64Error = $"Error encoding Base64: {ex.Message}";
+            State.Base64Error = $"Error encoding Base64: {ex.Message}";
         }
     }
 
     private void DecodeBase64()
     {
-        _base64Error = string.Empty;
+        State.Base64Error = string.Empty;
         try
         {
-            var bytes = Convert.FromBase64String(_base64Input.Trim());
-            _base64Output = Encoding.UTF8.GetString(bytes);
+            var bytes = Convert.FromBase64String(State.Base64Input.Trim());
+            State.Base64Output = Encoding.UTF8.GetString(bytes);
         }
         catch (Exception ex)
         {
-            _base64Error = $"Error decoding Base64: {ex.Message}";
+            State.Base64Error = $"Error decoding Base64: {ex.Message}";
         }
     }
 
     private void EncodeUrl()
     {
-        _urlError = string.Empty;
+        State.UrlError = string.Empty;
         try
         {
-            _urlOutput = Uri.EscapeDataString(_urlInput);
+            State.UrlOutput = Uri.EscapeDataString(State.UrlInput);
         }
         catch (Exception ex)
         {
-            _urlError = $"Error encoding URL: {ex.Message}";
+            State.UrlError = $"Error encoding URL: {ex.Message}";
         }
     }
 
     private void DecodeUrl()
     {
-        _urlError = string.Empty;
+        State.UrlError = string.Empty;
         try
         {
-            _urlOutput = Uri.UnescapeDataString(_urlInput);
+            State.UrlOutput = Uri.UnescapeDataString(State.UrlInput);
         }
         catch (Exception ex)
         {
-            _urlError = $"Error decoding URL: {ex.Message}";
+            State.UrlError = $"Error decoding URL: {ex.Message}";
         }
     }
 
     private void ClearBase64()
     {
-        _base64Input = string.Empty;
-        _base64Output = string.Empty;
-        _base64Error = string.Empty;
+        State.Base64Input = string.Empty;
+        State.Base64Output = string.Empty;
+        State.Base64Error = string.Empty;
     }
 
     private void ClearUrl()
     {
-        _urlInput = string.Empty;
-        _urlOutput = string.Empty;
-        _urlError = string.Empty;
+        State.UrlInput = string.Empty;
+        State.UrlOutput = string.Empty;
+        State.UrlError = string.Empty;
+    }
+
+    private sealed class PageState
+    {
+        public string Base64Input = string.Empty;
+        public string Base64Output = string.Empty;
+        public string Base64Error = string.Empty;
+        public string UrlInput = string.Empty;
+        public string UrlOutput = string.Empty;
+        public string UrlError = string.Empty;
     }
 }

@@ -1,0 +1,29 @@
+.cidr-grid {
+    display: grid;
+    grid-template-columns: 140px 1fr auto;
+    gap: 6px 12px;
+    align-items: center;
+    margin-top: 12px;
+}
+
+.cidr-binary {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 6px 12px;
+    margin-top: 12px;
+    font-family: monospace;
+    word-break: break-all;
+}
+
+.cidr-label {
+    font-weight: 600;
+}
+
+.cidr-value {
+    font-family: monospace;
+}
+
+::deep .cidr-net {
+    color: var(--accent-fill-rest);
+    font-weight: 600;
+}

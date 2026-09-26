@@ -33,6 +33,14 @@
     align-self: center;
 }
 
+.har-selected-details {
+    scroll-margin-top: 16px;
+}
+
+.har-selected-details:focus {
+    outline: none;
+}
+
 .har-replay-cell {
     display: flex;
     align-items: center;

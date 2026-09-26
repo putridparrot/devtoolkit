@@ -1,6 +1,8 @@
 @page "/timestamp"
 @using DevToolkit.Infrastructure
 @attribute [ToolPage("Timestamp", "🕒", "Convert Unix timestamps and DateTime values.", 6)]
+@using DevToolkit.Services
+@inject ToolStateStore Store
 
 <PageTitle>Timestamp</PageTitle>
 
@@ -11,21 +13,21 @@
     <FluentCard Style="padding: 20px;">
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
             <FluentLabel Typo="Typography.Subject">Unix Timestamp (seconds or milliseconds)</FluentLabel>
-            <FluentTextField Value="@_unixInput" ValueChanged="@((string v) => _unixInput = v)" Placeholder="e.g. 1716375296 or 1716375296000" Style="width: 100%;" />
+            <FluentTextField Value="@State.UnixInput" ValueChanged="@((string v) => State.UnixInput = v)" Placeholder="e.g. 1716375296 or 1716375296000" Style="width: 100%;" />
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px;">
                 <FluentButton Appearance="Appearance.Accent" OnClick="ConvertFromUnix">Convert from Unix</FluentButton>
             </FluentStack>
 
             <FluentLabel Typo="Typography.Subject">DateTime</FluentLabel>
-            <FluentTextField Value="@_dateTimeInput" ValueChanged="@((string v) => _dateTimeInput = v)" Placeholder="e.g. 2026-01-31T10:45:00Z" Style="width: 100%;" />
+            <FluentTextField Value="@State.DateTimeInput" ValueChanged="@((string v) => State.DateTimeInput = v)" Placeholder="e.g. 2026-01-31T10:45:00Z" Style="width: 100%;" />
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px;">
                 <FluentButton Appearance="Appearance.Accent" OnClick="ConvertFromDateTime">Convert from DateTime</FluentButton>
                 <FluentButton Appearance="Appearance.Outline" OnClick="SetNow">Use Now</FluentButton>
             </FluentStack>
 
-            @if (!string.IsNullOrWhiteSpace(_errorMessage))
+            @if (!string.IsNullOrWhiteSpace(State.ErrorMessage))
             {
-                <FluentMessageBar Intent="MessageIntent.Error">@_errorMessage</FluentMessageBar>
+                <FluentMessageBar Intent="MessageIntent.Error">@State.ErrorMessage</FluentMessageBar>
             }
         </FluentStack>
     </FluentCard>
@@ -33,39 +35,37 @@
     <FluentCard Style="padding: 20px;">
         <FluentLabel Typo="Typography.Subject">Results</FluentLabel>
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 8px; margin-top: 10px;">
-            <FluentLabel><strong>UTC:</strong> @_utcOutput</FluentLabel>
-            <FluentLabel><strong>Local:</strong> @_localOutput</FluentLabel>
-            <FluentLabel><strong>Unix Seconds:</strong> @_unixSecondsOutput</FluentLabel>
-            <FluentLabel><strong>Unix Milliseconds:</strong> @_unixMillisecondsOutput</FluentLabel>
-            <FluentLabel><strong>ISO-8601:</strong> @_isoOutput</FluentLabel>
+            <FluentLabel><strong>UTC:</strong> @State.UtcOutput</FluentLabel>
+            <FluentLabel><strong>Local:</strong> @State.LocalOutput</FluentLabel>
+            <FluentLabel><strong>Unix Seconds:</strong> @State.UnixSecondsOutput</FluentLabel>
+            <FluentLabel><strong>Unix Milliseconds:</strong> @State.UnixMillisecondsOutput</FluentLabel>
+            <FluentLabel><strong>ISO-8601:</strong> @State.IsoOutput</FluentLabel>
         </FluentStack>
     </FluentCard>
 </FluentStack>
 </div>
 
 @code {
-    private string _unixInput = string.Empty;
-    private string _dateTimeInput = string.Empty;
-    private string _errorMessage = string.Empty;
-
-    private string _utcOutput = "-";
-    private string _localOutput = "-";
-    private string _unixSecondsOutput = "-";
-    private string _unixMillisecondsOutput = "-";
-    private string _isoOutput = "-";
+    private PageState State = null!;
 
     protected override void OnInitialized()
     {
+        State = Store.Get<PageState>(out var isNewState);
+        if (!isNewState)
+        {
+            return;
+        }
+
         SetNow();
     }
 
     private void ConvertFromUnix()
     {
-        _errorMessage = string.Empty;
+        State.ErrorMessage = string.Empty;
 
-        if (!long.TryParse(_unixInput.Trim(), out var unixValue))
+        if (!long.TryParse(State.UnixInput.Trim(), out var unixValue))
         {
-            _errorMessage = "Invalid Unix value.";
+            State.ErrorMessage = "Invalid Unix value.";
             return;
         }
 
@@ -76,43 +76,55 @@
                 : DateTimeOffset.FromUnixTimeSeconds(unixValue);
 
             SetOutputs(dto);
-            _dateTimeInput = dto.UtcDateTime.ToString("o");
+            State.DateTimeInput = dto.UtcDateTime.ToString("o");
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Conversion error: {ex.Message}";
+            State.ErrorMessage = $"Conversion error: {ex.Message}";
         }
     }
 
     private void ConvertFromDateTime()
     {
-        _errorMessage = string.Empty;
+        State.ErrorMessage = string.Empty;
 
-        if (!DateTimeOffset.TryParse(_dateTimeInput, out var dto))
+        if (!DateTimeOffset.TryParse(State.DateTimeInput, out var dto))
         {
-            _errorMessage = "Invalid DateTime value.";
+            State.ErrorMessage = "Invalid DateTime value.";
             return;
         }
 
         SetOutputs(dto);
-        _unixInput = dto.ToUnixTimeMilliseconds().ToString();
+        State.UnixInput = dto.ToUnixTimeMilliseconds().ToString();
     }
 
     private void SetNow()
     {
         var now = DateTimeOffset.UtcNow;
-        _dateTimeInput = now.ToString("o");
-        _unixInput = now.ToUnixTimeMilliseconds().ToString();
+        State.DateTimeInput = now.ToString("o");
+        State.UnixInput = now.ToUnixTimeMilliseconds().ToString();
         SetOutputs(now);
-        _errorMessage = string.Empty;
+        State.ErrorMessage = string.Empty;
     }
 
     private void SetOutputs(DateTimeOffset dto)
     {
-        _utcOutput = dto.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
-        _localOutput = dto.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss zzz");
-        _unixSecondsOutput = dto.ToUnixTimeSeconds().ToString();
-        _unixMillisecondsOutput = dto.ToUnixTimeMilliseconds().ToString();
-        _isoOutput = dto.ToString("o");
+        State.UtcOutput = dto.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+        State.LocalOutput = dto.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss zzz");
+        State.UnixSecondsOutput = dto.ToUnixTimeSeconds().ToString();
+        State.UnixMillisecondsOutput = dto.ToUnixTimeMilliseconds().ToString();
+        State.IsoOutput = dto.ToString("o");
+    }
+
+    private sealed class PageState
+    {
+        public string UnixInput = string.Empty;
+        public string DateTimeInput = string.Empty;
+        public string ErrorMessage = string.Empty;
+        public string UtcOutput = "-";
+        public string LocalOutput = "-";
+        public string UnixSecondsOutput = "-";
+        public string UnixMillisecondsOutput = "-";
+        public string IsoOutput = "-";
     }
 }

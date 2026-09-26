@@ -4,8 +4,10 @@
 @using System.Text
 @using System.Text.Json
 @using DevToolkit.Infrastructure
+@using DevToolkit.Services
 @using Microsoft.JSInterop
 @inject IJSRuntime JS
+@inject ToolStateStore Store
 
 <PageTitle>HAR Replay &amp; Sanitizer</PageTitle>
 
@@ -16,28 +18,36 @@
     <FluentCard Style="padding: 20px;">
         <FluentLabel Typo="Typography.Subject">Load HAR content</FluentLabel>
         <div class="har-load-row">
-            <InputFile OnChange="LoadHarFile" accept=".har,.hat,application/json" />
+            <InputFile OnChange="LoadHarFile" accept=".har,.hat,application/json" disabled="@_isBusy" />
         </div>
         <textarea class="har-input"
-                  @bind="_harContent"
+                  @bind="State.HarContent"
                   @bind:event="onchange"
+                  disabled="@_isBusy"
                   placeholder="Paste your HAR file content here..."></textarea>
-        <FluentButton Appearance="Appearance.Accent" OnClick="ParseHar" Style="margin-top: 10px;">Parse HAR</FluentButton>
+        <FluentStack Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Center" Style="gap: 12px; margin-top: 10px;">
+            <FluentButton Appearance="Appearance.Accent" OnClick="ParseHar" Disabled="@_isBusy">Parse HAR</FluentButton>
+            @if (_isBusy)
+            {
+                <FluentProgressRing Width="24px" />
+                <FluentLabel Typo="Typography.Body">@_busyMessage</FluentLabel>
+            }
+        </FluentStack>
     </FluentCard>
 
-    @if (_entries.Any())
+    @if (State.Entries.Any() && !_isBusy)
     {
         <FluentCard Style="padding: 20px;">
             <FluentLabel Typo="Typography.Subject" Class="har-section-label">Filter &amp; sanitize</FluentLabel>
             <div class="har-controls-grid">
                 <div>
                     <label>Search</label>
-                    <FluentTextField Value="@_filterText" ValueChanged="@((string value) => OnFilterTextChanged(value))" Placeholder="URL, header, host..." />
+                    <FluentTextField Value="@State.FilterText" ValueChanged="@((string value) => OnFilterTextChanged(value))" Placeholder="URL, header, host..." />
                 </div>
                 <div>
                     <label>Method</label>
-                    <FluentCombobox Items="@_methodOptions"
-                                    SelectedOption="@_methodFilter"
+                    <FluentCombobox Items="@State.MethodOptions"
+                                    SelectedOption="@State.MethodFilter"
                                     SelectedOptionChanged="@((string? value) => OnMethodFilterChanged(value))"
                                     Style="min-width: 130px;"
                                     Class="readonly-combo">
@@ -47,29 +57,29 @@
                 <div>
                     <label>Status</label>
                     <FluentCombobox Items="@_statusOptions"
-                                    SelectedOption="@_statusFilter"
+                                    SelectedOption="@State.StatusFilter"
                                     SelectedOptionChanged="@((string? value) => OnStatusFilterChanged(value))"
                                     Style="min-width: 130px;"
                                     Class="readonly-combo">
                         <OptionTemplate>@context</OptionTemplate>
                     </FluentCombobox>
                 </div>
-                <FluentCheckbox Checked="@_onlyErrors" CheckedChanged="@((bool value) => OnOnlyErrorsChanged(value))">Only errors</FluentCheckbox>
+                <FluentCheckbox Checked="@State.OnlyErrors" CheckedChanged="@((bool value) => OnOnlyErrorsChanged(value))">Only errors</FluentCheckbox>
             </div>
 
             <FluentDivider Style="margin: 16px 0;" />
 
             <FluentLabel Typo="Typography.Body" Class="har-section-label">Sanitizer options</FluentLabel>
             <div class="har-sanitizer-grid">
-                <FluentCheckbox Checked="@_stripQuery" CheckedChanged="@((bool value) => ToggleStripQuery(value))">Strip query string</FluentCheckbox>
-                <FluentCheckbox Checked="@_redactAuth" CheckedChanged="@((bool value) => ToggleRedactAuth(value))">Redact Authorization</FluentCheckbox>
-                <FluentCheckbox Checked="@_redactCookies" CheckedChanged="@((bool value) => ToggleRedactCookies(value))">Redact cookies</FluentCheckbox>
-                <FluentCheckbox Checked="@_redactBodies" CheckedChanged="@((bool value) => ToggleRedactBodies(value))">Redact bodies</FluentCheckbox>
+                <FluentCheckbox Checked="@State.StripQuery" CheckedChanged="@((bool value) => ToggleStripQuery(value))">Strip query string</FluentCheckbox>
+                <FluentCheckbox Checked="@State.RedactAuth" CheckedChanged="@((bool value) => ToggleRedactAuth(value))">Redact Authorization</FluentCheckbox>
+                <FluentCheckbox Checked="@State.RedactCookies" CheckedChanged="@((bool value) => ToggleRedactCookies(value))">Redact cookies</FluentCheckbox>
+                <FluentCheckbox Checked="@State.RedactBodies" CheckedChanged="@((bool value) => ToggleRedactBodies(value))">Redact bodies</FluentCheckbox>
             </div>
 
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; margin-top: 12px; flex-wrap: wrap;">
                 <FluentButton Appearance="Appearance.Accent" OnClick="CopySanitizedHar">Copy sanitized HAR</FluentButton>
-                <FluentButton Appearance="Appearance.Outline" OnClick="CopyVisibleCurl" Disabled="@string.IsNullOrEmpty(_curlPreview)">Copy selected cURL</FluentButton>
+                <FluentButton Appearance="Appearance.Outline" OnClick="CopyVisibleCurl" Disabled="@string.IsNullOrEmpty(State.CurlPreview)">Copy selected cURL</FluentButton>
             </FluentStack>
         </FluentCard>
 
@@ -78,34 +88,34 @@
             <div class="har-summary-grid">
                 <div>
                     <span class="summary-label">Total requests</span>
-                    <span class="summary-value">@_entries.Count</span>
+                    <span class="summary-value">@State.Entries.Count</span>
                 </div>
                 <div>
                     <span class="summary-label">Filtered view</span>
-                    <span class="summary-value">@_filteredEntries.Count</span>
+                    <span class="summary-value">@State.FilteredEntries.Count</span>
                 </div>
                 <div>
                     <span class="summary-label">Hosts</span>
-                    <span class="summary-value">@_entries.Select(e => e.Host).Distinct().Count()</span>
+                    <span class="summary-value">@State.Entries.Select(e => e.Host).Distinct().Count()</span>
                 </div>
                 <div>
                     <span class="summary-label">Total time</span>
-                    <span class="summary-value">@_entries.Sum(e => e.Time) ms</span>
+                    <span class="summary-value">@State.Entries.Sum(e => e.Time) ms</span>
                 </div>
                 <div>
                     <span class="summary-label">2xx</span>
-                    <span class="summary-value">@_entries.Count(e => e.Status is >= 200 and < 300)</span>
+                    <span class="summary-value">@State.Entries.Count(e => e.Status is >= 200 and < 300)</span>
                 </div>
                 <div>
                     <span class="summary-label">4xx/5xx</span>
-                    <span class="summary-value">@_entries.Count(e => e.Status >= 400)</span>
+                    <span class="summary-value">@State.Entries.Count(e => e.Status >= 400)</span>
                 </div>
             </div>
         </FluentCard>
 
         <FluentCard Style="padding: 20px;">
-            <FluentLabel Typo="Typography.Subject">HTTP Requests (@_filteredEntries.Count)</FluentLabel>
-            <FluentDataGrid Items="@_filteredEntries.AsQueryable()" Style="margin-top: 10px;" GridTemplateColumns="90px 2fr 100px 100px 120px">
+            <FluentLabel Typo="Typography.Subject">HTTP Requests (@State.FilteredEntries.Count)</FluentLabel>
+            <FluentDataGrid Items="@State.FilteredEntries.AsQueryable()" Style="margin-top: 10px;" GridTemplateColumns="90px 2fr 100px 100px 120px">
                 <PropertyColumn Property="@(e => e.Method)" Title="Method" />
                 <PropertyColumn Property="@(e => e.Url)" Title="URL" />
                 <TemplateColumn Title="Status" Context="entry">
@@ -123,32 +133,34 @@
             </FluentDataGrid>
         </FluentCard>
 
-        @if (_selectedEntry is not null)
+        @if (State.SelectedEntry is not null)
         {
+            <div class="har-selected-details" tabindex="-1" @ref="_selectedDetailsRef">
             <FluentCard Style="padding: 20px;">
                 <FluentLabel Typo="Typography.Subject">Selected request</FluentLabel>
                 <FluentStack Orientation="Orientation.Vertical" Style="gap: 6px; margin-top: 10px;">
-                    <FluentLabel Style="font-weight: 600;">@_selectedEntry.Method @SanitizeUrl(_selectedEntry.Url)</FluentLabel>
-                    <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">Status @_selectedEntry.Status (@_selectedEntry.StatusText) | @_selectedEntry.Time ms | @_selectedEntry.MimeType</FluentLabel>
+                    <FluentLabel Style="font-weight: 600;">@State.SelectedEntry.Method @SanitizeUrl(State.SelectedEntry.Url)</FluentLabel>
+                    <FluentLabel Style="font-size: 0.85rem; opacity: 0.8;">Status @State.SelectedEntry.Status (@State.SelectedEntry.StatusText) | @State.SelectedEntry.Time ms | @State.SelectedEntry.MimeType</FluentLabel>
                 </FluentStack>
 
                 <FluentTabs Style="margin-top: 16px;">
                     <FluentTab TabId="request" Label="Request headers">
-                        <pre class="har-pre">@FormatHeaders(_selectedEntry.RequestHeaders)</pre>
+                        <pre class="har-pre">@FormatHeaders(State.SelectedEntry.RequestHeaders)</pre>
                     </FluentTab>
                     <FluentTab TabId="response" Label="Response headers">
-                        <pre class="har-pre">@FormatHeaders(_selectedEntry.ResponseHeaders)</pre>
+                        <pre class="har-pre">@FormatHeaders(State.SelectedEntry.ResponseHeaders)</pre>
                     </FluentTab>
                     <FluentTab TabId="json" Label="Sanitized payload">
-                        <pre class="har-pre">@_sanitizedEntryJson</pre>
+                        <pre class="har-pre">@State.SanitizedEntryJson</pre>
                         <FluentButton Appearance="Appearance.Stealth" OnClick="CopySelectedJson" Style="margin-top: 8px;">Copy JSON</FluentButton>
                     </FluentTab>
                     <FluentTab TabId="curl" Label="Replay (cURL)">
-                        <pre class="har-pre">@_curlPreview</pre>
-                        <FluentButton Appearance="Appearance.Accent" OnClick="CopyVisibleCurl" Style="margin-top: 8px;" Disabled="@string.IsNullOrEmpty(_curlPreview)">Copy cURL</FluentButton>
+                        <pre class="har-pre">@State.CurlPreview</pre>
+                        <FluentButton Appearance="Appearance.Accent" OnClick="CopyVisibleCurl" Style="margin-top: 8px;" Disabled="@string.IsNullOrEmpty(State.CurlPreview)">Copy cURL</FluentButton>
                     </FluentTab>
                 </FluentTabs>
             </FluentCard>
+            </div>
         }
         else
         {
@@ -158,67 +170,102 @@
         }
     }
 
-    @if (!string.IsNullOrWhiteSpace(_errorMessage))
+    @if (!string.IsNullOrWhiteSpace(State.ErrorMessage))
     {
         <FluentMessageBar Intent="MessageIntent.Error">
-            @_errorMessage
+            @State.ErrorMessage
         </FluentMessageBar>
     }
 </FluentStack>
 </div>
 
 @code {
-    private string _harContent = string.Empty;
-    private string _errorMessage = string.Empty;
-    private readonly List<HarEntry> _entries = new();
-    private readonly List<HarEntry> _filteredEntries = new();
-    private readonly List<string> _methodOptions = new() { "All" };
     private readonly List<string> _statusOptions = new() { "All", "2xx", "3xx", "4xx", "5xx" };
-    private HarEntry? _selectedEntry;
-    private string _filterText = string.Empty;
-    private string _methodFilter = "All";
-    private string _statusFilter = "All";
-    private bool _onlyErrors;
-    private bool _stripQuery = true;
-    private bool _redactAuth = true;
-    private bool _redactCookies = true;
-    private bool _redactBodies = true;
-    private string _sanitizedEntryJson = string.Empty;
-    private string _curlPreview = string.Empty;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
+    private bool _isBusy;
+    private string _busyMessage = string.Empty;
+    private ElementReference _selectedDetailsRef;
+    private bool _scrollToSelected;
+    private PageState State = null!;
+
+    protected override void OnInitialized()
+    {
+        State = Store.Get<PageState>(out _);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_scrollToSelected && State.SelectedEntry is not null)
+        {
+            _scrollToSelected = false;
+            // Focusing the details container scrolls it into view
+            await _selectedDetailsRef.FocusAsync(preventScroll: false);
+        }
+    }
 
     private async Task LoadHarFile(InputFileChangeEventArgs e)
     {
-        _errorMessage = string.Empty;
+        State.ErrorMessage = string.Empty;
+        _isBusy = true;
+        _busyMessage = $"Loading {e.File.Name}...";
+        StateHasChanged();
 
         try
         {
             var file = e.File;
-            await using var stream = file.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+            await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
             using var reader = new StreamReader(stream);
-            _harContent = await reader.ReadToEndAsync();
-            StateHasChanged();
+            State.HarContent = await reader.ReadToEndAsync();
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Error loading HAR file: {ex.Message}";
+            State.ErrorMessage = $"Error loading HAR file: {ex.Message}";
+        }
+        finally
+        {
+            _isBusy = false;
+            _busyMessage = string.Empty;
         }
     }
 
-    private void ParseHar()
+    private async Task ParseHar()
     {
-        _errorMessage = string.Empty;
-        _entries.Clear();
-        _filteredEntries.Clear();
-        _selectedEntry = null;
-        _sanitizedEntryJson = string.Empty;
-        _curlPreview = string.Empty;
-        _methodOptions.Clear();
-        _methodOptions.Add("All");
+        if (_isBusy)
+        {
+            return;
+        }
+
+        _isBusy = true;
+        _busyMessage = "Parsing HAR...";
+        StateHasChanged();
+        // Parsing runs on the UI thread, so yield to let the spinner render first
+        await Task.Delay(1);
 
         try
         {
-            using var document = JsonDocument.Parse(_harContent);
+            ParseHarContent();
+        }
+        finally
+        {
+            _isBusy = false;
+            _busyMessage = string.Empty;
+        }
+    }
+
+    private void ParseHarContent()
+    {
+        State.ErrorMessage = string.Empty;
+        State.Entries.Clear();
+        State.FilteredEntries.Clear();
+        State.SelectedEntry = null;
+        State.SanitizedEntryJson = string.Empty;
+        State.CurlPreview = string.Empty;
+        State.MethodOptions.Clear();
+        State.MethodOptions.Add("All");
+
+        try
+        {
+            using var document = JsonDocument.Parse(State.HarContent);
             var root = document.RootElement;
 
             if (root.TryGetProperty("log", out var log) &&
@@ -275,69 +322,69 @@
                         harEntry.ResponseBody = responseBody.GetString();
                     }
 
-                    _entries.Add(harEntry);
+                    State.Entries.Add(harEntry);
                 }
 
-                foreach (var method in _entries.Select(e => e.Method).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(m => m))
+                foreach (var method in State.Entries.Select(e => e.Method).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(m => m))
                 {
-                    _methodOptions.Add(method);
+                    State.MethodOptions.Add(method);
                 }
 
                 ApplyFilters();
             }
             else
             {
-                _errorMessage = "Invalid HAR format. Could not find 'log.entries' in the JSON.";
+                State.ErrorMessage = "Invalid HAR format. Could not find 'log.entries' in the JSON.";
             }
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Error parsing HAR file: {ex.Message}";
+            State.ErrorMessage = $"Error parsing HAR file: {ex.Message}";
         }
     }
 
     private void ApplyFilters()
     {
-        _filteredEntries.Clear();
-        foreach (var entry in _entries)
+        State.FilteredEntries.Clear();
+        foreach (var entry in State.Entries)
         {
             if (MatchesFilters(entry))
             {
-                _filteredEntries.Add(entry);
+                State.FilteredEntries.Add(entry);
             }
         }
 
-        if (_selectedEntry is not null && !_filteredEntries.Contains(_selectedEntry))
+        if (State.SelectedEntry is not null && !State.FilteredEntries.Contains(State.SelectedEntry))
         {
-            _selectedEntry = null;
-            _sanitizedEntryJson = string.Empty;
-            _curlPreview = string.Empty;
+            State.SelectedEntry = null;
+            State.SanitizedEntryJson = string.Empty;
+            State.CurlPreview = string.Empty;
         }
     }
 
     private bool MatchesFilters(HarEntry entry)
     {
-        if (_onlyErrors && entry.Status < 400)
+        if (State.OnlyErrors && entry.Status < 400)
         {
             return false;
         }
 
-        if (_methodFilter != "All" && !entry.Method.Equals(_methodFilter, StringComparison.OrdinalIgnoreCase))
+        if (State.MethodFilter != "All" && !entry.Method.Equals(State.MethodFilter, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        if (_statusFilter != "All" && !StatusMatches(entry.Status, _statusFilter))
+        if (State.StatusFilter != "All" && !StatusMatches(entry.Status, State.StatusFilter))
         {
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(_filterText))
+        if (string.IsNullOrWhiteSpace(State.FilterText))
         {
             return true;
         }
 
-        var term = _filterText.Trim();
+        var term = State.FilterText.Trim();
         return entry.Url.Contains(term, StringComparison.OrdinalIgnoreCase)
                || entry.Host.Contains(term, StringComparison.OrdinalIgnoreCase)
                || entry.RequestHeaders.Any(h => h.Value.Contains(term, StringComparison.OrdinalIgnoreCase))
@@ -355,21 +402,22 @@
 
     private void SelectEntry(HarEntry entry)
     {
-        _selectedEntry = entry;
+        State.SelectedEntry = entry;
         UpdateSelectedPreview();
+        _scrollToSelected = true;
     }
 
     private void UpdateSelectedPreview()
     {
-        if (_selectedEntry is null)
+        if (State.SelectedEntry is null)
         {
-            _sanitizedEntryJson = string.Empty;
-            _curlPreview = string.Empty;
+            State.SanitizedEntryJson = string.Empty;
+            State.CurlPreview = string.Empty;
             return;
         }
 
-        _sanitizedEntryJson = BuildSanitizedEntryJson(_selectedEntry);
-        _curlPreview = BuildCurlCommand(_selectedEntry);
+        State.SanitizedEntryJson = BuildSanitizedEntryJson(State.SelectedEntry);
+        State.CurlPreview = BuildCurlCommand(State.SelectedEntry);
     }
 
     private string BuildSanitizedEntryJson(HarEntry entry)
@@ -412,7 +460,7 @@
 
     private string BuildSanitizedHarExport()
     {
-        var entries = _entries.Select(entry => new
+        var entries = State.Entries.Select(entry => new
         {
             entry.Method,
             Url = SanitizeUrl(entry.Url),
@@ -430,7 +478,7 @@
 
     private async Task CopySanitizedHar()
     {
-        if (!_entries.Any())
+        if (!State.Entries.Any())
         {
             return;
         }
@@ -440,17 +488,17 @@
 
     private async Task CopyVisibleCurl()
     {
-        if (!string.IsNullOrEmpty(_curlPreview))
+        if (!string.IsNullOrEmpty(State.CurlPreview))
         {
-            await CopyToClipboard(_curlPreview);
+            await CopyToClipboard(State.CurlPreview);
         }
     }
 
     private async Task CopySelectedJson()
     {
-        if (!string.IsNullOrEmpty(_sanitizedEntryJson))
+        if (!string.IsNullOrEmpty(State.SanitizedEntryJson))
         {
-            await CopyToClipboard(_sanitizedEntryJson);
+            await CopyToClipboard(State.SanitizedEntryJson);
         }
     }
 
@@ -458,55 +506,55 @@
 
     private void OnFilterTextChanged(string value)
     {
-        _filterText = value ?? string.Empty;
+        State.FilterText = value ?? string.Empty;
         ApplyFilters();
     }
 
     private void OnMethodFilterChanged(string? value)
     {
-        _methodFilter = value ?? "All";
+        State.MethodFilter = value ?? "All";
         ApplyFilters();
     }
 
     private void OnStatusFilterChanged(string? value)
     {
-        _statusFilter = value ?? "All";
+        State.StatusFilter = value ?? "All";
         ApplyFilters();
     }
 
     private void OnOnlyErrorsChanged(bool value)
     {
-        _onlyErrors = value;
+        State.OnlyErrors = value;
         ApplyFilters();
     }
 
     private void ToggleStripQuery(bool value)
     {
-        _stripQuery = value;
+        State.StripQuery = value;
         UpdateSelectedPreview();
     }
 
     private void ToggleRedactAuth(bool value)
     {
-        _redactAuth = value;
+        State.RedactAuth = value;
         UpdateSelectedPreview();
     }
 
     private void ToggleRedactCookies(bool value)
     {
-        _redactCookies = value;
+        State.RedactCookies = value;
         UpdateSelectedPreview();
     }
 
     private void ToggleRedactBodies(bool value)
     {
-        _redactBodies = value;
+        State.RedactBodies = value;
         UpdateSelectedPreview();
     }
 
     private string SanitizeUrl(string url)
     {
-        if (!_stripQuery)
+        if (!State.StripQuery)
         {
             return url;
         }
@@ -518,12 +566,12 @@
 
     private string SanitizeHeaderValue(string name, string value)
     {
-        if (_redactAuth && name.Contains("authorization", StringComparison.OrdinalIgnoreCase))
+        if (State.RedactAuth && name.Contains("authorization", StringComparison.OrdinalIgnoreCase))
         {
             return "[REDACTED]";
         }
 
-        if (_redactCookies && name.Contains("cookie", StringComparison.OrdinalIgnoreCase))
+        if (State.RedactCookies && name.Contains("cookie", StringComparison.OrdinalIgnoreCase))
         {
             return "[REDACTED]";
         }
@@ -538,7 +586,7 @@
             return string.Empty;
         }
 
-        return _redactBodies ? "[REDACTED]" : body;
+        return State.RedactBodies ? "[REDACTED]" : body;
     }
 
     private static string EscapeSingleQuotes(string value) => value.Replace("'", "'\\''");
@@ -567,6 +615,26 @@
         }
 
         return "status-error";
+    }
+
+    private sealed class PageState
+    {
+        public string HarContent = string.Empty;
+        public string ErrorMessage = string.Empty;
+        public readonly List<HarEntry> Entries = new();
+        public readonly List<HarEntry> FilteredEntries = new();
+        public readonly List<string> MethodOptions = new() { "All" };
+        public HarEntry? SelectedEntry;
+        public string FilterText = string.Empty;
+        public string MethodFilter = "All";
+        public string StatusFilter = "All";
+        public bool OnlyErrors;
+        public bool StripQuery = true;
+        public bool RedactAuth = true;
+        public bool RedactCookies = true;
+        public bool RedactBodies = true;
+        public string SanitizedEntryJson = string.Empty;
+        public string CurlPreview = string.Empty;
     }
 
     private sealed class HarEntry

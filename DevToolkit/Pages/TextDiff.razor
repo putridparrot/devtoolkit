@@ -1,5 +1,7 @@
 @page "/text-diff"
-@attribute [ToolPage("Text Diff", "🧾", "Spot differences between snippets, configs, or payloads.", 14)]
+@attribute [ToolPage("Text Diff", "🧾", "Spot differences between snippets, configs, or payloads.", 17)]
+@using DevToolkit.Services
+@inject ToolStateStore Store
 @using DevToolkit.Infrastructure
 @using DiffPlex
 @using DiffPlex.Chunkers
@@ -20,27 +22,27 @@
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 20px; flex-wrap: wrap;">
                 <FluentStack Orientation="Orientation.Vertical" Style="flex: 1 1 300px; gap: 8px;">
                     <FluentLabel Typo="Typography.Subject">Left Text</FluentLabel>
-                    <FluentTextArea Value="@_leftText"
-                                    ValueChanged="@((string value) => _leftText = value)"
+                    <FluentTextArea Value="@State.LeftText"
+                                    ValueChanged="@((string value) => State.LeftText = value)"
                                     Rows="14"
                                     Style="width: 100%; font-family: monospace;" />
                 </FluentStack>
 
                 <FluentStack Orientation="Orientation.Vertical" Style="flex: 1 1 300px; gap: 8px;">
                     <FluentLabel Typo="Typography.Subject">Right Text</FluentLabel>
-                    <FluentTextArea Value="@_rightText"
-                                    ValueChanged="@((string value) => _rightText = value)"
+                    <FluentTextArea Value="@State.RightText"
+                                    ValueChanged="@((string value) => State.RightText = value)"
                                     Rows="14"
                                     Style="width: 100%; font-family: monospace;" />
                 </FluentStack>
             </FluentStack>
 
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 20px; flex-wrap: wrap; align-items: center;">
-                <FluentCheckbox Checked="_ignoreWhitespace"
-                                CheckedChanged="(bool? value) => _ignoreWhitespace = value ?? false"
+                <FluentCheckbox Checked="State.IgnoreWhitespace"
+                                CheckedChanged="(bool? value) => State.IgnoreWhitespace = value ?? false"
                                 Label="Ignore whitespace" />
-                <FluentCheckbox Checked="_ignoreCase"
-                                CheckedChanged="(bool? value) => _ignoreCase = value ?? false"
+                <FluentCheckbox Checked="State.IgnoreCase"
+                                CheckedChanged="(bool? value) => State.IgnoreCase = value ?? false"
                                 Label="Ignore case" />
             </FluentStack>
 
@@ -52,29 +54,29 @@
         </FluentStack>
     </FluentCard>
 
-    @if (!string.IsNullOrWhiteSpace(_statusMessage))
+    @if (!string.IsNullOrWhiteSpace(State.StatusMessage))
     {
-        <FluentMessageBar Intent="@_statusIntent">@_statusMessage</FluentMessageBar>
+        <FluentMessageBar Intent="@State.StatusIntent">@State.StatusMessage</FluentMessageBar>
     }
 
-    @if (_diffResult is not null)
+    @if (State.DiffResult is not null)
     {
         <FluentCard Style="padding: 20px;">
             <FluentLabel Typo="Typography.Subject">Summary</FluentLabel>
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 20px; flex-wrap: wrap; margin-top: 8px;">
-                <FluentLabel><strong>Added:</strong> @_summary.Added</FluentLabel>
-                <FluentLabel><strong>Removed:</strong> @_summary.Removed</FluentLabel>
-                <FluentLabel><strong>Modified:</strong> @_summary.Modified</FluentLabel>
-                <FluentLabel><strong>Total changes:</strong> @_summary.TotalChanges</FluentLabel>
+                <FluentLabel><strong>Added:</strong> @State.Summary.Added</FluentLabel>
+                <FluentLabel><strong>Removed:</strong> @State.Summary.Removed</FluentLabel>
+                <FluentLabel><strong>Modified:</strong> @State.Summary.Modified</FluentLabel>
+                <FluentLabel><strong>Total changes:</strong> @State.Summary.TotalChanges</FluentLabel>
             </FluentStack>
         </FluentCard>
 
         <FluentCard Style="padding: 20px;">
             <FluentLabel Typo="Typography.Subject">Diff Output</FluentLabel>
             <div class="diff-output" aria-label="diff results">
-                @for (var i = 0; i < _diffResult.Lines.Count; i++)
+                @for (var i = 0; i < State.DiffResult.Lines.Count; i++)
                 {
-                    var line = _diffResult.Lines[i];
+                    var line = State.DiffResult.Lines[i];
                     var cssClass = $"diff-line {CssModifier(line.Type)}";
                     <div class="@cssClass">
                         <span class="diff-line-marker">@MarkerFor(line.Type)</span>
@@ -88,73 +90,66 @@
 </div>
 
 @code {
+    private PageState State = null!;
+
+    protected override void OnInitialized()
+    {
+        State = Store.Get<PageState>(out _);
+    }
+
     private readonly InlineDiffBuilder _diffBuilder = new(new Differ());
     private readonly IChunker _chunker = new LineChunker();
 
-    private string _leftText = @"GET /api/users HTTP/1.1
-Host: api.example.com
-Accept: application/json
-X-Env: staging";
 
-    private string _rightText = @"GET /api/users HTTP/1.1
-Host: api.example.com
-Accept: application/problem+json
-X-Env: production";
 
-    private bool _ignoreWhitespace = true;
-    private bool _ignoreCase = false;
 
-    private DiffPaneModel? _diffResult;
-    private DiffSummary _summary = DiffSummary.Empty;
-    private string _statusMessage = string.Empty;
-    private MessageIntent _statusIntent = MessageIntent.Info;
 
     private void CompareText()
     {
-        _statusMessage = string.Empty;
+        State.StatusMessage = string.Empty;
 
-        if (string.IsNullOrWhiteSpace(_leftText) && string.IsNullOrWhiteSpace(_rightText))
+        if (string.IsNullOrWhiteSpace(State.LeftText) && string.IsNullOrWhiteSpace(State.RightText))
         {
-            _diffResult = null;
-            _summary = DiffSummary.Empty;
-            _statusIntent = MessageIntent.Info;
-            _statusMessage = "Enter or paste text in at least one panel.";
+            State.DiffResult = null;
+            State.Summary = DiffSummary.Empty;
+            State.StatusIntent = MessageIntent.Info;
+            State.StatusMessage = "Enter or paste text in at least one panel.";
             return;
         }
 
-        _diffResult = _diffBuilder.BuildDiffModel(
-            _leftText ?? string.Empty,
-            _rightText ?? string.Empty,
-            _ignoreWhitespace,
-            _ignoreCase,
+        State.DiffResult = _diffBuilder.BuildDiffModel(
+            State.LeftText ?? string.Empty,
+            State.RightText ?? string.Empty,
+            State.IgnoreWhitespace,
+            State.IgnoreCase,
             _chunker);
 
-        _summary = DiffSummary.From(_diffResult);
+        State.Summary = DiffSummary.From(State.DiffResult);
 
-        if (_summary.TotalChanges == 0)
+        if (State.Summary.TotalChanges == 0)
         {
-            _statusIntent = MessageIntent.Success;
-            _statusMessage = "No differences detected.";
+            State.StatusIntent = MessageIntent.Success;
+            State.StatusMessage = "No differences detected.";
         }
         else
         {
-            _statusIntent = MessageIntent.Info;
-            _statusMessage = $"Found {_summary.TotalChanges} change(s).";
+            State.StatusIntent = MessageIntent.Info;
+            State.StatusMessage = $"Found {State.Summary.TotalChanges} change(s).";
         }
     }
 
     private void SwapSides()
     {
-        (_leftText, _rightText) = (_rightText, _leftText);
+        (State.LeftText, State.RightText) = (State.RightText, State.LeftText);
     }
 
     private void ClearAll()
     {
-        _leftText = string.Empty;
-        _rightText = string.Empty;
-        _diffResult = null;
-        _summary = DiffSummary.Empty;
-        _statusMessage = string.Empty;
+        State.LeftText = string.Empty;
+        State.RightText = string.Empty;
+        State.DiffResult = null;
+        State.Summary = DiffSummary.Empty;
+        State.StatusMessage = string.Empty;
     }
 
     private static string MarkerFor(ChangeType type) => type switch
@@ -218,12 +213,12 @@ X-Env: production";
 
     private string? FindCounterpartText(int index, ChangeType type)
     {
-        if (_diffResult is null)
+        if (State.DiffResult is null)
         {
             return null;
         }
 
-        var lines = _diffResult.Lines;
+        var lines = State.DiffResult.Lines;
 
         static bool IsComparable(ChangeType t) => t is ChangeType.Inserted or ChangeType.Deleted or ChangeType.Modified;
 
@@ -251,7 +246,7 @@ X-Env: production";
     }
 
     private bool CharsEqual(char left, char right)
-        => _ignoreCase
+        => State.IgnoreCase
             ? char.ToUpperInvariant(left) == char.ToUpperInvariant(right)
             : left == right;
 
@@ -276,5 +271,23 @@ X-Env: production";
             var modified = model.Lines.Count(line => line.Type == ChangeType.Modified);
             return new DiffSummary(added, removed, modified);
         }
+    }
+
+    private sealed class PageState
+    {
+        public string LeftText = @"GET /api/users HTTP/1.1
+Host: api.example.com
+Accept: application/json
+X-Env: staging";
+        public string RightText = @"GET /api/users HTTP/1.1
+Host: api.example.com
+Accept: application/problem+json
+X-Env: production";
+        public bool IgnoreWhitespace = true;
+        public bool IgnoreCase = false;
+        public DiffPaneModel? DiffResult;
+        public DiffSummary Summary = DiffSummary.Empty;
+        public string StatusMessage = string.Empty;
+        public MessageIntent StatusIntent = MessageIntent.Info;
     }
 }

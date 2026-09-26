@@ -28,16 +28,26 @@
     <FluentStack Orientation="Orientation.Horizontal" Style="flex: 1; overflow: hidden;" Class="main-content">
         @if (_isNavOpen)
         {
-            <FluentNavMenu Class="nav-menu open"
-                           Width="250"
-                           Title="Tools"
-                           Style="flex-shrink: 0; height: 100%; overflow-y: auto;">
-                <FluentNavLink Href="/" Match="NavLinkMatch.All" IconColor="Color.Accent">Home</FluentNavLink>
-                @foreach (var tool in ToolRegistry.Tools)
-                {
-                    <FluentNavLink Href="@tool.Route" IconColor="Color.Accent">@tool.Name</FluentNavLink>
-                }
-            </FluentNavMenu>
+            <div class="nav-panel">
+                <FluentSearch @bind-Value="_navFilter"
+                              Immediate="true"
+                              Placeholder="Search tools..."
+                              AriaLabel="Search tools"
+                              Class="nav-search" />
+                <FluentNavMenu Class="nav-menu open"
+                               Width="250"
+                               Title="Tools"
+                               Style="flex: 1; overflow-y: auto;">
+                    @if (string.IsNullOrWhiteSpace(_navFilter))
+                    {
+                        <FluentNavLink Href="/" Match="NavLinkMatch.All" IconColor="Color.Accent">Home</FluentNavLink>
+                    }
+                    @foreach (var tool in FilteredTools)
+                    {
+                        <FluentNavLink Href="@tool.Route" IconColor="Color.Accent">@tool.Name</FluentNavLink>
+                    }
+                </FluentNavMenu>
+            </div>
         }
 
         <div class="content-area" @key="_currentMode">
@@ -62,6 +72,14 @@
     private string CurrentTitle { get; set; } = "Dev Toolkit";
     private DesignThemeModes _currentMode = DesignThemeModes.System;
     private bool _isNavOpen = true;
+    private string? _navFilter;
+
+    private IEnumerable<ToolRegistration> FilteredTools =>
+        string.IsNullOrWhiteSpace(_navFilter)
+            ? ToolRegistry.Tools
+            : ToolRegistry.Tools.Where(t =>
+                t.Name.Contains(_navFilter.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                t.Description.Contains(_navFilter.Trim(), StringComparison.OrdinalIgnoreCase));
 
     private void ToggleNav()
     {
@@ -78,6 +96,7 @@
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
+        _navFilter = null;
         UpdateTitle();
     }
 

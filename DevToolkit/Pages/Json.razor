@@ -1,5 +1,6 @@
 @page "/json"
 @attribute [ToolPage("JSON", "🧾", "Format, minify, and validate JSON payloads.", 4)]
+@inject ToolStateStore Store
 @using System.Text.Json
 @using DevToolkit.Infrastructure
 @using DevToolkit.Services
@@ -16,7 +17,7 @@
     <FluentCard Style="padding: 20px;">
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 12px;">
             <FluentLabel Typo="Typography.Subject">Input JSON</FluentLabel>
-            <FluentTextArea Value="@_jsonInput"
+            <FluentTextArea Value="@State.JsonInput"
                             ValueChanged="OnJsonInputChanged"
                             Rows="12"
                             Style="width: 100%; font-family: monospace;" />
@@ -28,16 +29,16 @@
                 <FluentButton Appearance="Appearance.Lightweight" OnClick="ClearAll">Clear</FluentButton>
             </FluentStack>
 
-            @if (!string.IsNullOrWhiteSpace(_statusMessage))
+            @if (!string.IsNullOrWhiteSpace(State.StatusMessage))
             {
-                <FluentMessageBar Intent="@_statusIntent">@_statusMessage</FluentMessageBar>
+                <FluentMessageBar Intent="@State.StatusIntent">@State.StatusMessage</FluentMessageBar>
             }
         </FluentStack>
     </FluentCard>
 
     <FluentCard Style="padding: 20px;">
         <FluentLabel Typo="Typography.Subject">Output</FluentLabel>
-        <FluentTextArea Value="@_jsonOutput"
+        <FluentTextArea Value="@State.JsonOutput"
                         ValueChanged="OnJsonOutputChanged"
                         Rows="12"
                         Style="width: 100%; margin-top: 10px; font-family: monospace;" />
@@ -46,21 +47,28 @@
 </div>
 
 @code {
-    private string _jsonInput = string.Empty;
-    private string _jsonOutput = string.Empty;
-    private string _statusMessage = string.Empty;
-    private MessageIntent _statusIntent = MessageIntent.Info;
+    private PageState State = null!;
+
+    protected override void OnInitialized()
+    {
+        State = Store.Get<PageState>(out _isNewState);
+    }
+
     private AppSettings? _settings;
     private readonly TimeSpan _autosaveDelay = TimeSpan.FromMilliseconds(600);
     private CancellationTokenSource? _autosaveCts;
     private bool _settingsLoaded;
+    private bool _isNewState;
 
     protected override async Task OnInitializedAsync()
     {
         _settings = await SettingsService.LoadSettingsAsync();
         var stored = _settings.Json ??= new JsonToolsSettings();
-        _jsonInput = stored.LastInput ?? string.Empty;
-        _jsonOutput = stored.LastOutput ?? string.Empty;
+        if (_isNewState)
+        {
+            State.JsonInput = stored.LastInput ?? string.Empty;
+            State.JsonOutput = stored.LastOutput ?? string.Empty;
+        }
         _settingsLoaded = true;
     }
 
@@ -82,18 +90,18 @@
 
     private Task ValidateJson()
     {
-        _statusMessage = string.Empty;
+        State.StatusMessage = string.Empty;
 
         try
         {
-            using var _ = JsonDocument.Parse(_jsonInput);
-            _statusMessage = "Valid JSON.";
-            _statusIntent = MessageIntent.Success;
+            using var _ = JsonDocument.Parse(State.JsonInput);
+            State.StatusMessage = "Valid JSON.";
+            State.StatusIntent = MessageIntent.Success;
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Invalid JSON: {ex.Message}";
-            _statusIntent = MessageIntent.Error;
+            State.StatusMessage = $"Invalid JSON: {ex.Message}";
+            State.StatusIntent = MessageIntent.Error;
         }
 
         return Task.CompletedTask;
@@ -101,42 +109,42 @@
 
     private bool ProcessJson(bool writeIndented, string mode)
     {
-        _statusMessage = string.Empty;
+        State.StatusMessage = string.Empty;
 
         try
         {
-            using var doc = JsonDocument.Parse(_jsonInput);
-            _jsonOutput = JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = writeIndented });
-            _statusMessage = $"JSON {mode} successfully.";
-            _statusIntent = MessageIntent.Success;
+            using var doc = JsonDocument.Parse(State.JsonInput);
+            State.JsonOutput = JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = writeIndented });
+            State.StatusMessage = $"JSON {mode} successfully.";
+            State.StatusIntent = MessageIntent.Success;
             return true;
         }
         catch (Exception ex)
         {
-            _statusMessage = $"Invalid JSON: {ex.Message}";
-            _statusIntent = MessageIntent.Error;
+            State.StatusMessage = $"Invalid JSON: {ex.Message}";
+            State.StatusIntent = MessageIntent.Error;
             return false;
         }
     }
 
     private async Task ClearAll()
     {
-        _jsonInput = string.Empty;
-        _jsonOutput = string.Empty;
-        _statusMessage = string.Empty;
-        _statusIntent = MessageIntent.Info;
+        State.JsonInput = string.Empty;
+        State.JsonOutput = string.Empty;
+        State.StatusMessage = string.Empty;
+        State.StatusIntent = MessageIntent.Info;
         await PersistAsync();
     }
 
     private void OnJsonInputChanged(string value)
     {
-        _jsonInput = value;
+        State.JsonInput = value;
         ScheduleAutoSave();
     }
 
     private void OnJsonOutputChanged(string value)
     {
-        _jsonOutput = value;
+        State.JsonOutput = value;
         ScheduleAutoSave();
     }
 
@@ -172,8 +180,8 @@
         }
 
         var jsonSettings = _settings.Json ??= new JsonToolsSettings();
-        jsonSettings.LastInput = _jsonInput;
-        jsonSettings.LastOutput = _jsonOutput;
+        jsonSettings.LastInput = State.JsonInput;
+        jsonSettings.LastOutput = State.JsonOutput;
         jsonSettings.LastUpdated = DateTimeOffset.UtcNow;
 
         await SettingsService.SaveSettingsAsync(_settings);
@@ -182,5 +190,13 @@
     public void Dispose()
     {
         _autosaveCts?.Cancel();
+    }
+
+    private sealed class PageState
+    {
+        public string JsonInput = string.Empty;
+        public string JsonOutput = string.Empty;
+        public string StatusMessage = string.Empty;
+        public MessageIntent StatusIntent = MessageIntent.Info;
     }
 }
